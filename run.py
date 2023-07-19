@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 import torch
+import torch.backends.cudnn
 
 from src import config
 from src.NICE_SLAM import NICE_SLAM

@@ -3,7 +3,7 @@ sync_method: strict
 scale: 1
 verbose: True
 occupancy: True
-low_gpu_mem: True
+low_gpu_mem: false
 grid_len:
   coarse: 2 
   middle: 0.32 

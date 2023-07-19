@@ -40,6 +40,9 @@ class Tracker(object):
         self.mapping_cnt = slam.mapping_cnt
         self.shared_decoders = slam.shared_decoders
         self.estimate_c2w_list = slam.estimate_c2w_list
+        #self.estimate_c2w_list = slam.gt_c2w_list               #changed to gt
+
+
 
         self.cam_lr = cfg['tracking']['lr']
         self.device = cfg['tracking']['device']
@@ -195,10 +198,13 @@ class Tracker(object):
                         device).float().inverse()
                     estimated_new_cam_c2w = delta@pre_c2w
                 else:
-                    estimated_new_cam_c2w = pre_c2w
+                    estimated_new_cam_c2w = pre_c2w 
 
-                camera_tensor = get_tensor_from_camera(
-                    estimated_new_cam_c2w.detach())
+                #camera_tensor = get_tensor_from_camera(
+                #    estimated_new_cam_c2w.detach())
+                camera_tensor = get_tensor_from_camera(                     #changed to gt
+                    gt_c2w)
+
                 if self.seperate_LR:
                     camera_tensor = camera_tensor.to(device).detach()
                     T = camera_tensor[-3:]
@@ -250,8 +256,8 @@ class Tracker(object):
                 c2w = get_camera_from_tensor(
                     candidate_cam_tensor.clone().detach())
                 c2w = torch.cat([c2w, bottom], dim=0)
-            self.estimate_c2w_list[idx] = c2w.clone().cpu()
-            self.gt_c2w_list[idx] = gt_c2w.clone().cpu()
+            self.estimate_c2w_list[idx] = gt_c2w.clone().cpu()
+            self.gt_c2w_list[idx] = gt_c2w.clone().cpu()                #gt of c2w list is read like this
             pre_c2w = c2w.clone()
             self.idx[0] = idx
             if self.low_gpu_mem:
