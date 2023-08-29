@@ -11,6 +11,10 @@ from tqdm import tqdm
 
 from src.common import (get_camera_from_tensor, get_samples,
                         get_tensor_from_camera)
+
+from src.common_sift import (get_camera_from_tensor, get_samples_sift,
+                        get_tensor_from_camera)
+
 from src.utils.datasets import get_dataset
 from src.utils.Visualizer import Visualizer
 
@@ -71,7 +75,7 @@ class Tracker(object):
                                      renderer=self.renderer, verbose=self.verbose, device=self.device)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
-    def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer):
+    def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer, gt_color_prev, idx):
         """
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
 
@@ -93,6 +97,12 @@ class Tracker(object):
         Hedge = self.ignore_edge_H
         batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+        
+
+        batch_rays_o_sift, batch_rays_d_sift, batch_gt_depth_sift, batch_gt_color_sift = get_samples_sift(
+            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, idx, self.device)
+
+
         if self.nice:
             # should pre-filter those out of bounding box depth value
             with torch.no_grad():
@@ -157,6 +167,7 @@ class Tracker(object):
         else:
             pbar = tqdm(self.frame_loader)
 
+        gt_color_prev = None
         for idx, gt_color, gt_depth, gt_c2w in pbar:
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
@@ -239,7 +250,7 @@ class Tracker(object):
                     gt_camera_tensor.to(device)-camera_tensor).mean().item()
                 candidate_cam_tensor = None
                 current_min_loss = 10000000000.
-                for cam_iter in range(self.num_cam_iters):
+                for cam_iter in range(1):                       # run
                     if self.seperate_LR:
                         camera_tensor = torch.cat([quad, T], 0).to(self.device)
 
@@ -247,7 +258,7 @@ class Tracker(object):
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
 
                     loss = self.optimize_cam_in_batch(
-                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera)
+                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, gt_color_prev, idx)
 
                     if cam_iter == 0:
                         initial_loss = loss
@@ -278,7 +289,7 @@ class Tracker(object):
 
 
 
-                        
+
                 bottom = torch.from_numpy(np.array([0, 0, 0, 1.]).reshape(
                     [1, 4])).type(torch.float32).to(self.device)
                 c2w = get_camera_from_tensor(
@@ -290,3 +301,6 @@ class Tracker(object):
             self.idx[0] = idx
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()
+
+            # save current gt_color image into gt_color_prev
+            gt_color_prev = gt_color.clone()

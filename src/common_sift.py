@@ -1,6 +1,15 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from src.sift import SIFTMatcher
+
+# mapper and tracker? need an init for the very first image (get the sift features)
+# create sift features for the subsequent images and find the corresponding features
+# word from the other thing from file for several images
+# get same features and matches over several images
+
+# later create c2w 
+
 
 
 def as_intrinsics_matrix(intrinsics):
@@ -90,49 +99,44 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 
 
 # randomly chooses uv coordinates
-# if image is 4x4
-# i tensor gives you the row and j tensor gives you the column as input
-# i tensor([[0, 0, 0, 0],
-#         [1, 1, 1, 1],
-#         [2, 2, 2, 2],
-#         [3, 3, 3, 3]])
-
-# j tensor([[0, 1, 2, 3],
-#         [0, 1, 2, 3],
-#         [0, 1, 2, 3],
-#         [0, 1, 2, 3]])
-def select_uv(i, j, n, depth, color, device='cuda:0'):
+# adds sift features and uv coordinates
+# color gt image
+def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
     """
     Select n uv from dense uv.
 
     """
-    #reshapes i and j into 1D array 
-    # i is u values of whole image in 1D array  
-    # j is v values in whole
     i = i.reshape(-1)
     j = j.reshape(-1)
 
-    # randomize and get the indices of the random values
+    #random indices
     indices = torch.randint(i.shape[0], (n,), device=device)
     indices = indices.clamp(0, i.shape[0])
+
+    sift_matcher = SIFTMatcher()  # Instantiate the class
+    uv_1, uv_2, index_1, index_2 = sift_matcher.match(frame, color, color2)
+
+
     i = i[indices]  # (n)
     j = j[indices]  # (n)
-
-    # computes i and j (column and row) 1D tensors of i and j of the indices i[k] 
     depth = depth.reshape(-1)
     color = color.reshape(-1, 3)
-
-    # compute the depth and color
     depth = depth[indices]  # (n)
     color = color[indices]  # (n,3)
-
     return i, j, depth, color
+
+
+
+
+
+
 
 
 # initiates all the uv coordinates in i and j aswell as depth and color for all pixels
 # puts them into select_uv where some pixels are randomly sampled which then form the output tensors
 # to add specific uv chosen by sift - edit select_uv
-def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
+# output i j are the sampled i and j values
+def get_sample_uv(H0, H1, W0, W1, n, depth, color, color2, frame, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
 
@@ -148,20 +152,28 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
     i = i.t()  # transpose
     j = j.t()
-    i, j, depth, color = select_uv(i, j, n, depth, color, device=device)
+    i, j, depth, color = select_uv(i, j, n, depth, color, color2, frame, device=device)
     return i, j, depth, color
 
 
-def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, device):
+
+
+
+
+
+def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, color2, frame, device):
     """
     Get n rays from the image region H0..H1, W0..W1.
     c2w is its camera pose and depth/color is the corresponding image tensor.
 
     """
     i, j, sample_depth, sample_color = get_sample_uv(
-        H0, H1, W0, W1, n, depth, color, device=device)
+        H0, H1, W0, W1, n, depth, color, color2, frame, device=device)
     rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
     return rays_o, rays_d, sample_depth, sample_color
+
+
+
 
 
 def quad2rotation(quad):

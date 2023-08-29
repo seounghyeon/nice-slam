@@ -29,7 +29,9 @@ class GaussianFourierFeatureTransform(torch.nn.Module):
         x = x @ self._B.to(x.device)
         return torch.sin(x)
 
-
+#
+#   input x 
+# 
 class Nerf_positional_embedding(torch.nn.Module):
     """
     Nerf positional embedding.
@@ -136,7 +138,8 @@ class MLP(nn.Module):
             if 'color' in name:
                 multires = 10
                 self.embedder = Nerf_positional_embedding(
-                    multires, log_sampling=True)
+                    multires, log_sampling=True)                # to control how many dimensions to encode, higher more details
+                                                                # too large noisy - 
             else:
                 multires = 5
                 self.embedder = Nerf_positional_embedding(
@@ -162,7 +165,7 @@ class MLP(nn.Module):
             self.actvn = F.relu
         else:
             self.actvn = lambda x: F.leaky_relu(x, 0.2)
-
+        # sigmoid to narrow from 0 to 1 to color
         self.sample_mode = sample_mode
 
     def sample_grid_feature(self, p, c):
