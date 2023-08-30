@@ -42,7 +42,7 @@ class SIFTMatcher:
         np_img1 = np.clip(np_img1, 0, 1)
         np_img2 = np.clip(np_img2, 0, 1)
         # Check if the tensor shape is CxHxW, and if so, transpose it to HxWxC
-        print("Shape of np_img2:", np_img2.shape)
+        # print("Shape of np_img2:", np_img2.shape)
         if np_img1.shape[0] == 3:
             np_img1 = np.transpose(np_img1, (1, 2, 0))
         if np_img2.shape[0] == 3:
@@ -58,7 +58,7 @@ class SIFTMatcher:
         ############################################
 
         
-        debug = True
+        debug = False
 
 
         # Detect and compute keypoints and descriptors
@@ -115,8 +115,8 @@ class SIFTMatcher:
         uv_2 = torch.stack((u_reshaped_2, v_reshaped_2), dim=1)
 
         if(debug):
-            print("u_reshaped first 10: ",u_reshaped_1[:10])
-            print("v_reshaped first 10: ",v_reshaped_1[:10])
+            # print("u_reshaped first 10: ",u_reshaped_1[:10])
+            # print("v_reshaped first 10: ",v_reshaped_1[:10])
             print("combined tensor keypoints1:", uv_1[:10])
             print("u kp2 first 10: ",u_reshaped_1[:10])
             print("v kp2 first 10: ",v_reshaped_1[:10])
@@ -126,7 +126,7 @@ class SIFTMatcher:
             for uv in uv_2[:10]:
                 u, v = int(uv[0]), int(uv[1])
                 cv2.circle(image2, (u, v), radius=10, color=(0, 255, 0), thickness=-1)  # Draw a green circle
-            cv2.imshow('image2', image2)
+            #cv2.imshow('image2', image2)
 
         # (row(u) * width) + col(v) computes the index of uv coord (in the 1D tensor)
         index_1 = (v_reshaped_1 * W1) + u_reshaped_1
@@ -135,7 +135,7 @@ class SIFTMatcher:
             print("index size: ", index_1.size())
             print("index first: ", index_1)
             print("index size: ", index_2.size())
-            print("index first: ", index_2)
+            print("index second: ", index_2)
         #?? not needed
         # # Append to each list
         # list_keypoints_1 = list(zip(u_reshaped_1, v_reshaped_1))

@@ -9,9 +9,6 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.common import (get_camera_from_tensor, get_samples,
-                        get_tensor_from_camera)
-
 from src.common_sift import (get_camera_from_tensor, get_samples_sift,
                         get_tensor_from_camera)
 
@@ -83,7 +80,7 @@ class Tracker(object):
             camera_tensor (tensor): camera tensor.
             gt_color (tensor): ground truth color image of the current frame.
             gt_depth (tensor): ground truth depth image of the current frame.
-            batch_size (int): batch size, number of sampling rays.
+            batch_size (int): batch size, number of sampling rays. - additional 100 sift selected added in get_samples_sift()
             optimizer (torch.optim): camera optimizer.
 
         Returns:
@@ -95,13 +92,14 @@ class Tracker(object):
         c2w = get_camera_from_tensor(camera_tensor)
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H
-        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
-            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+        # batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
+        #     Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
         
 
-        batch_rays_o_sift, batch_rays_d_sift, batch_gt_depth_sift, batch_gt_color_sift = get_samples_sift(
+        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples_sift(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, idx, self.device)
-
+        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples_sift(
+            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, idx, self.device)
 
         if self.nice:
             # should pre-filter those out of bounding box depth value
@@ -168,6 +166,8 @@ class Tracker(object):
             pbar = tqdm(self.frame_loader)
 
         gt_color_prev = None
+        gt_depth_prev = None
+
         for idx, gt_color, gt_depth, gt_c2w in pbar:
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
@@ -260,6 +260,8 @@ class Tracker(object):
                     loss = self.optimize_cam_in_batch(
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, gt_color_prev, idx)
 
+
+
                     if cam_iter == 0:
                         initial_loss = loss
 
@@ -302,5 +304,6 @@ class Tracker(object):
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()
 
-            # save current gt_color image into gt_color_prev
+            # save current gt_color image into gt_color_prev, same with depth
             gt_color_prev = gt_color.clone()
+            gt_depth_prev = gt_depth.clone()

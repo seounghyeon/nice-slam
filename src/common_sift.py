@@ -116,13 +116,20 @@ def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
     sift_matcher = SIFTMatcher()  # Instantiate the class
     uv_1, uv_2, index_1, index_2 = sift_matcher.match(frame, color, color2)
 
+    indices = torch.cat((indices, index_1), dim=0)
 
     i = i[indices]  # (n)
     j = j[indices]  # (n)
+    # print("\ni size is: ",i.size())
+
+
+
     depth = depth.reshape(-1)
     color = color.reshape(-1, 3)
     depth = depth[indices]  # (n)
     color = color[indices]  # (n,3)
+
+
     return i, j, depth, color
 
 
@@ -136,6 +143,7 @@ def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
 # puts them into select_uv where some pixels are randomly sampled which then form the output tensors
 # to add specific uv chosen by sift - edit select_uv
 # output i j are the sampled i and j values
+# color2 is the image before
 def get_sample_uv(H0, H1, W0, W1, n, depth, color, color2, frame, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1

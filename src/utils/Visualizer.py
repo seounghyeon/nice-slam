@@ -129,7 +129,7 @@ class Visualizer(object):
         # which frame is processed - every 10th - frame_out_num = 10
         frame_out_num = 10
         
-        print("vis_rendered is entered\n")
+        # print("vis_rendered is entered\n")
         with torch.no_grad():
             if (idx % frame_out_num == 0) and (iter % frame_out_num == 0):                    
                 gt_depth_np = gt_depth.cpu().numpy()
