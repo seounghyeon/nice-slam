@@ -169,13 +169,22 @@ class MLP(nn.Module):
         self.sample_mode = sample_mode
 
     def sample_grid_feature(self, p, c):
+        
+        # p set of 3D coordinates (tensor shape (N,3) with x y z) 
         p_nor = normalize_3d_coordinate(p.clone(), self.bound)
         p_nor = p_nor.unsqueeze(0)
+        
         vgrid = p_nor[:, :, None, None].float()
         # acutally trilinear interpolation if mode = 'bilinear'
         c = F.grid_sample(c, vgrid, padding_mode='border', align_corners=True,
                           mode=self.sample_mode).squeeze(-1).squeeze(-1)
         return c
+
+    # get feature from feature grid
+    # probABLY binary position 
+    # vgrid is 3D position
+    # feature grid is like bbox
+
 
     def forward(self, p, c_grid=None):
         if self.c_dim != 0:
