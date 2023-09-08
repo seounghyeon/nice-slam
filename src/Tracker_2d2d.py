@@ -10,12 +10,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common_sift import (get_camera_from_tensor, get_samples_sift,
-                        get_tensor_from_camera)
+                        get_tensor_from_camera, proj_3D_2D)
 
 from src.utils.datasets import get_dataset
 from src.utils.Visualizer import Visualizer
 
-
+debug = False
 class Tracker(object):
     def __init__(self, cfg, args, slam
                  ):
@@ -72,7 +72,8 @@ class Tracker(object):
                                      renderer=self.renderer, verbose=self.verbose, device=self.device)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
-    def optimize_cam_in_batch(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer, gt_color_prev, idx):
+
+    def cam_pose_optimization_sift(self, camera_tensor, gt_color, gt_depth, batch_size, optimizer, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx):
         """
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
 
@@ -90,16 +91,88 @@ class Tracker(object):
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
         optimizer.zero_grad()
         c2w = get_camera_from_tensor(camera_tensor)
+        prev_c2w = get_camera_from_tensor(prev_camera_tensor)
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H
+        print("wedge and hedge are: ", Wedge, Hedge)
         # batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
         #     Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
-        
 
-        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples_sift(
-            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, idx, self.device)
-        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples_sift(
-            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, idx, self.device)
+        # get sift rays for both images
+        # then calculate loss
+        # will probably need initial poses - 
+        '''
+        hedge and wedge are 20 - the input to get_samples_sift() are 20 and imagesize-20
+        this means on every edge 20 pixels are removed and the removed image is put inside
+        '''
+        batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color, batch_rays_o2, batch_rays_d2, batch_gt_depth2, batch_gt_color2 = get_samples_sift(
+            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device)
+        # print("in cam_pose_optimization gt_color size: ", gt_color.size())
+        # print("in cam_pose_optimization H and W size: ", H, W)
+
+
+        
+        # sizes of rays_o and rays_d is [100,3]
+        s_rays_o = batch_rays_o[1000:1100]
+        s_rays_d = batch_rays_d[1000:1100]
+        s_rays_o2 = batch_rays_o2[1000:1100]
+        s_rays_d2 = batch_rays_d2[1000:1100]
+
+        # maybe change to range 
+        # s_depth sizes are [100]
+        s_depth = batch_gt_depth[1000:1100]
+        s_depth2 = batch_gt_depth2[1000:1100]
+
+        # print("3D POINT s_rays_o2 + s_rays_d2 * s_depth2:", s_rays_o2, s_rays_d2, s_depth2)
+
+        point_3D_prev    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3]
+        point_3D_current = s_rays_o2 + s_rays_d2 * s_depth2.unsqueeze(1)
+        
+        # print("point_3D_current size ", point_3D_current.size())    # grad_fn select backward0
+        #first point calc 1 element
+        # print("before c2w", c2w)
+
+        uv_in_cur = proj_3D_2D(point_3D_prev, fx, fy, cx, cy, c2w)  # is float
+        # print("uv in current frame: ", uv_in_cur,"\n")
+        uv_in_cur_test = proj_3D_2D(point_3D_current, fx, fy, cx, cy, c2w)  # is float
+        # uv_in_cur_test = torch.from_numpy(uv_in_cur_test).int()
+
+        # uv_in_cur_test2 = proj_3D_2D(point_3D_prev, fx, fy, cx, cy, c2w)  # is float
+        # uv_in_cur_test2 = torch.from_numpy(uv_in_cur_test2).int()
+
+        ################################################################################################################################
+        # reverse u (left right) because it is wrong
+        uv_in_cur_test[:, 0] = W-uv_in_cur_test[:, 0]
+
+        # adjust small plus minus
+        uv_in_cur_test[:, 0] = uv_in_cur_test[:, 0] - 3
+        # uv_in_cur_test[:, 1] = uv_in_cur_test[:, 0] + 1
+
+
+        # print("uv_in_cur_test first 10: \n", uv_in_cur_test[:10])
+        # still some mistakes, some 3D points are wrong 
+        # negative numbers, different numbers
+        ################################################################################################################################
+
+        # prev rays in cur
+        prev_in_cur = proj_3D_2D(point_3D_prev, fx, fy, cx, cy, c2w)  # is float
+        prev_in_cur[:, 0] = W-prev_in_cur[:, 0]
+        prev_in_cur[:, 0] = prev_in_cur[:, 0] - 3
+        print("prev_in_cur: \n", prev_in_cur[:10])
+
+        # cur rays in prev
+        cur_in_prev = proj_3D_2D(point_3D_current, fx, fy, cx, cy, prev_c2w)  # is float
+        cur_in_prev[:, 0] = W-cur_in_prev[:, 0]
+        cur_in_prev[:, 0] = cur_in_prev[:, 0] - 3
+        print("prev_in_cur: \n", cur_in_prev[:10])
+
+
+
+
+
+
+
+
 
         if self.nice:
             # should pre-filter those out of bounding box depth value
@@ -138,6 +211,23 @@ class Tracker(object):
         optimizer.zero_grad()
         return loss.item()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     def update_para_from_mapping(self):
         """
         Update the parameters of scene representation from the mapping thread.
@@ -156,7 +246,7 @@ class Tracker(object):
 
 
         # true for using gt c2w otherwise run normal
-        toggle_gt_c2w = False
+        toggle_gt_c2w = True
 
         device = self.device
         self.c = {}
@@ -167,7 +257,12 @@ class Tracker(object):
 
         gt_color_prev = None
         gt_depth_prev = None
-
+        prev_idx = None
+        prev_camera_tensor = None
+        # batch_rays_d_prev = None 
+        # batch_rays_o_prev = None
+        
+        # main loop for tracker - runs for all frames
         for idx, gt_color, gt_depth, gt_c2w in pbar:
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
@@ -176,7 +271,10 @@ class Tracker(object):
             gt_depth = gt_depth[0]
             gt_color = gt_color[0]
             gt_c2w = gt_c2w[0]
-
+            if idx>1:
+                
+                if debug == True:
+                    print("this is the current idx: ", idx, "this is the previous idx: ", prev_idx, "\n")
             if self.sync_method == 'strict':
                 # strictly mapping and then tracking
                 # initiate mapping every self.every_frame frames
@@ -205,7 +303,8 @@ class Tracker(object):
                 if not self.no_vis_on_first_frame:
                     self.visualizer.vis(
                         idx, 0, gt_depth, gt_color, c2w, self.c, self.decoders)
-
+                prev_camera_tensor = get_tensor_from_camera(c2w)
+                prev_camera_tensor = Variable(prev_camera_tensor.to(device), requires_grad=True)
             else:
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
                 if self.const_speed_assumption and idx-2 >= 0:
@@ -250,6 +349,12 @@ class Tracker(object):
                     gt_camera_tensor.to(device)-camera_tensor).mean().item()
                 candidate_cam_tensor = None
                 current_min_loss = 10000000000.
+
+                """
+                Similar to SPARF to get loss for tracking
+                gets sparf rays and computes 3D point coordinates
+
+                """
                 for cam_iter in range(1):                       # run
                     if self.seperate_LR:
                         camera_tensor = torch.cat([quad, T], 0).to(self.device)
@@ -257,9 +362,11 @@ class Tracker(object):
                     self.visualizer.vis(
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
 
-                    loss = self.optimize_cam_in_batch(
-                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, gt_color_prev, idx)
-
+                    loss = self.cam_pose_optimization_sift(
+                        camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx)
+                    # print("batch_Rays_d_prev = ", batch_rays_d_prev)
+                    # print("size of batch_rays_d_prev = ", batch_rays_d_prev.size())
+                    # print("size of batch_rays_o_prev = ", batch_rays_o_prev.size())
 
 
                     if cam_iter == 0:
@@ -275,19 +382,16 @@ class Tracker(object):
                     if loss < current_min_loss:
                         current_min_loss = loss
                         candidate_cam_tensor = camera_tensor.clone().detach()
+                if debug == True:
+                    print("current and previous cam_tensor:\n", camera_tensor,"\n",prev_camera_tensor, "\n")
 
 
-                # RUN ONLY ONCE AND DO IT TO GET THE RENDERED IMAGE AND PROCESS IT WITH sift
-                for cam_iter in range(1):
-                    if self.seperate_LR:
-                        camera_tensor = torch.cat([quad, T], 0).to(self.device)
-
-                    # Run the vis_rendered once to create the rendered image explicitly here
-                    # print("Before calling vis_rendered")
+                # renders and outputs the image
+                # every out_num image is rendered and saved in rendered_images
+                out_num = 10
+                if (idx%out_num == 0):
                     self.visualizer.vis_rendered(
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
-                        # idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders) from mapper
-
 
 
 
@@ -304,6 +408,13 @@ class Tracker(object):
             if self.low_gpu_mem:
                 torch.cuda.empty_cache()
 
-            # save current gt_color image into gt_color_prev, same with depth
-            gt_color_prev = gt_color.clone()
-            gt_depth_prev = gt_depth.clone()
+            # save current gt_color image into gt_color_prev, same with depth, current camera position in tensor
+            gt_color_prev = gt_color.clone().detach()
+            gt_depth_prev = gt_depth.clone().detach()
+            prev_idx = idx.clone().detach()
+            if idx > 0:
+                prev_camera_tensor = candidate_cam_tensor.clone().detach()
+            # if batch_rays_o_prev is not None:
+            #     batch_rays_o_prev = batch_rays_o.clone()
+            #     batch_rays_d_prev = batch_rays_d.clone()
+                

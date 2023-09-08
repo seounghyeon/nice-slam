@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from src.common import get_camera_from_tensor
+from src.common_sift import get_camera_from_tensor
 import cv2
 # from src.sift import SIFTMatcher
 
@@ -125,79 +125,79 @@ class Visualizer(object):
             c (dicts): feature grids.
             decoders (nn.module): decoders.
         """
+     
+        print("vis_rendered is entered\n")
+        # print("iter is ", iter)
+        # camera iteration starts from 0 so it is 1 lower than division by 10 would give no rest
+        # add 1 to give every 10th image
+        iter = iter+1
 
-        # which frame is processed - every 10th - frame_out_num = 10
-        frame_out_num = 10
-        
-        # print("vis_rendered is entered\n")
         with torch.no_grad():
-            if (idx % frame_out_num == 0) and (iter % frame_out_num == 0):                    
-                gt_depth_np = gt_depth.cpu().numpy()
-                gt_color_np = gt_color.cpu().numpy()
-                if len(c2w_or_camera_tensor.shape) == 1:
-                    bottom = torch.from_numpy(
-                        np.array([0, 0, 0, 1.]).reshape([1, 4])).type(
-                            torch.float32).to(self.device)
-                    c2w = get_camera_from_tensor(
-                        c2w_or_camera_tensor.clone().detach())
-                    c2w = torch.cat([c2w, bottom], dim=0)
-                else:
-                    c2w = c2w_or_camera_tensor
+            gt_depth_np = gt_depth.cpu().numpy()
+            gt_color_np = gt_color.cpu().numpy()
+            if len(c2w_or_camera_tensor.shape) == 1:
+                bottom = torch.from_numpy(
+                    np.array([0, 0, 0, 1.]).reshape([1, 4])).type(
+                        torch.float32).to(self.device)
+                c2w = get_camera_from_tensor(
+                    c2w_or_camera_tensor.clone().detach())
+                c2w = torch.cat([c2w, bottom], dim=0)
+            else:
+                c2w = c2w_or_camera_tensor
 
-                depth, uncertainty, color = self.renderer.render_img(
-                    c,
-                    decoders,
-                    c2w,
-                    self.device,
-                    stage='color',
-                    gt_depth=gt_depth)
-                depth_np = depth.detach().cpu().numpy()
-                color_np = color.detach().cpu().numpy()
-                depth_residual = np.abs(gt_depth_np - depth_np)
-                depth_residual[gt_depth_np == 0.0] = 0.0
-                color_residual = np.abs(gt_color_np - color_np)
-                color_residual[gt_depth_np == 0.0] = 0.0
+            depth, uncertainty, color = self.renderer.render_img(
+                c,
+                decoders,
+                c2w,
+                self.device,
+                stage='color',
+                gt_depth=gt_depth)
+            depth_np = depth.detach().cpu().numpy()
+            color_np = color.detach().cpu().numpy()
+            depth_residual = np.abs(gt_depth_np - depth_np)
+            depth_residual[gt_depth_np == 0.0] = 0.0
+            color_residual = np.abs(gt_color_np - color_np)
+            color_residual[gt_depth_np == 0.0] = 0.0
 
-                # gt_color_np = np.clip(gt_color_np, 0, 1)
+            # gt_color_np = np.clip(gt_color_np, 0, 1)
 
-                # plt.imshow(color_np, cmap="plasma")
-                # plt.axis('off')  # To turn off the axis
-                # plt.savefig(f"output_image_plt_{idx}.png", bbox_inches='tight', pad_inches=0)
-                # plt.close()
+            # plt.imshow(color_np, cmap="plasma")
+            # plt.axis('off')  # To turn off the axis
+            # plt.savefig(f"output_image_plt_{idx}.png", bbox_inches='tight', pad_inches=0)
+            # plt.close()
 
-                ########################################################################################################
-                # change the np array of the image to cv2 format
+            ########################################################################################################
+            # change the np array of the image to cv2 format
 
-                # color is set from 0 to 1 to ensure range of intensity for the pixel is inside this valid range
-                color_np = np.clip(color_np, 0, 1)
-                # Check if the tensor shape is CxHxW, and if so, transpose it to HxWxC
-                if color_np.shape[0] == 3:
-                    color_np = np.transpose(color_np, (1, 2, 0))
+            # color is set from 0 to 1 to ensure range of intensity for the pixel is inside this valid range
+            color_np = np.clip(color_np, 0, 1)
+            # Check if the tensor shape is CxHxW, and if so, transpose it to HxWxC
+            if color_np.shape[0] == 3:
+                color_np = np.transpose(color_np, (1, 2, 0))
 
-                # If color values are in [0,1], scale to [0,255]
-                if color_np.max() <= 1.0:
-                    color_np = (color_np * 255).astype(np.uint8)
+            # If color values are in [0,1], scale to [0,255]
+            if color_np.max() <= 1.0:
+                color_np = (color_np * 255).astype(np.uint8)
 
-                # Save the image
-                # cv2.imwrite("output_image.jpg", color_np)  # Save as JPG
-                color_np_bgr = cv2.cvtColor(color_np, cv2.COLOR_RGB2BGR)
+            # Save the image
+            # cv2.imwrite("output_image.jpg", color_np)  # Save as JPG
+            color_np_bgr = cv2.cvtColor(color_np, cv2.COLOR_RGB2BGR)
 
 
-                # color is set from 0 to 1 to ensure range of intensity for the pixel is inside this valid range
-                gt_color_np = np.clip(gt_color_np, 0, 1)
-                # Check if the tensor shape is CxHxW, and if so, transpose it to HxWxC
-                if gt_color_np.shape[0] == 3:
-                    gt_color_np = np.transpose(gt_color_np, (1, 2, 0))
+            # color is set from 0 to 1 to ensure range of intensity for the pixel is inside this valid range
+            gt_color_np = np.clip(gt_color_np, 0, 1)
+            # Check if the tensor shape is CxHxW, and if so, transpose it to HxWxC
+            if gt_color_np.shape[0] == 3:
+                gt_color_np = np.transpose(gt_color_np, (1, 2, 0))
 
-                # If color values are in [0,1], scale to [0,255]
-                if gt_color_np.max() <= 1.0:
-                    gt_color_np = (gt_color_np * 255).astype(np.uint8)
+            # If color values are in [0,1], scale to [0,255]
+            if gt_color_np.max() <= 1.0:
+                gt_color_np = (gt_color_np * 255).astype(np.uint8)
 
-                # Save the image
-                # cv2.imwrite("output_image.jpg", gt_color)  # Save as JPG
-                gt_color_bgr = cv2.cvtColor(gt_color_np, cv2.COLOR_RGB2BGR)
-                ########################################################################################################
-
+            # Save the image
+            # cv2.imwrite("output_image.jpg", gt_color)  # Save as JPG
+            gt_color_bgr = cv2.cvtColor(gt_color_np, cv2.COLOR_RGB2BGR)
+            ########################################################################################################
 
 
 
@@ -205,12 +205,13 @@ class Visualizer(object):
 
 
 
-                cv2.imwrite(f"rendered_images/output_image_cv2_{idx}.png", color_np_bgr)
 
-                # matcher = SIFTMatcher()
-                # matched_image, keypoints_1, keypoints_2, matches = matcher.match(idx, gt_color_bgr, color_np_bgr)
+            cv2.imwrite(f"rendered_images/output_image_cv2_{idx}.png", color_np_bgr)
+
+            # matcher = SIFTMatcher()
+            # matched_image, keypoints_1, keypoints_2, matches = matcher.match(idx, gt_color_bgr, color_np_bgr)
 
 
-                #WHY REPEAT FOR 30 TIMES 
+            #WHY REPEAT FOR 30 TIMES 
 
 

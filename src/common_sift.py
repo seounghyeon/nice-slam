@@ -25,6 +25,47 @@ def as_intrinsics_matrix(intrinsics):
     return K
 
 
+def proj_3D_2D(points, fx, fy, cx, cy, c2w):
+    """
+    Check if points can be projected into the camera view
+    if possible - project them and save uv coordinates
+
+    """
+    # might be starting from a different beginning
+    # seems inverted to the sift feature
+    # print("device: ",c2w.device)
+
+    c2w_copy = c2w.clone()  
+
+    # Concatenate [0, 0, 0, 1] to the copied tensor
+    concat_tensor = torch.tensor([[0, 0, 0, 1]], device=c2w.device)
+    c2w_copy = torch.cat([c2w_copy, concat_tensor], dim=0)
+
+
+    c2w_copy[:3, 1] *= -1.0
+    c2w_copy[:3, 2] *= -1.0
+    c2w_copy_np = c2w_copy.detach().cpu().numpy()
+
+    # points = torch.from_numpy(points).cuda().clone()
+    w2c = np.linalg.inv(c2w_copy_np)
+    w2c = torch.from_numpy(w2c).cuda().float()
+    #camera intrinsic matrix K (u,v,w)= K * RT * X_world(homo)
+    K = torch.from_numpy(
+        np.array([[fx, .0, cx], [.0, fy, cy], [.0, .0, 1.0]]).reshape(3, 3)).cuda()
+    ones = torch.ones_like(points[:, 0]).reshape(-1, 1).cuda()
+    homo_points = torch.cat(
+        [points, ones], dim=1).reshape(-1, 4, 1).cuda().float()  # (N, 4)
+    cam_cord_homo = w2c@homo_points  # (N, 4, 1)=(4,4)*(N, 4, 1)
+    cam_cord = cam_cord_homo[:, :3]  # (N, 3, 1)
+    cam_cord[:, 0] *= -1
+    uv = K.float()@cam_cord.float()
+    z = uv[:, -1:]+1e-5
+    uv = uv[:, :2]/z
+    uv = uv.float().squeeze(-1).cpu().detach().numpy()
+    return uv
+
+
+
 def sample_pdf(bins, weights, N_samples, det=False, device='cuda:0'):
     """
     Hierarchical sampling in NeRF paper (section 5.2).
@@ -79,12 +120,29 @@ def random_select(l, k):
     """
     return list(np.random.permutation(np.array(range(l)))[:min(l, k)])
 
-
+# somehow the i j values added +20
 def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     """
     Get corresponding rays from input uv.
 
     """
+
+
+    # # Define the range of indices to update
+    # start_index = 1000
+    # end_index = 1100
+
+    # # Add 20 to the specified range of entries
+    # i[start_index:end_index] -= 20
+    # j[start_index:end_index] -= 20
+
+    # print("in get_rays_from_uv i (either prev or cur): ", i[1000:1010])
+    # print("in get_rays_from_uv j (either prev or cur): ", j[1000:1010])
+
+    # Create a tensor with recovered UV coordinates
+    # uv_recovered = torch.stack((u_coord_recovered, v_coord_recovered), dim=1)
+
+
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w).to(device)
 
@@ -101,7 +159,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 # randomly chooses uv coordinates
 # adds sift features and uv coordinates
 # color gt image
-def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
+def select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device='cuda:0'):
     """
     Select n uv from dense uv.
 
@@ -109,28 +167,53 @@ def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
     i = i.reshape(-1)
     j = j.reshape(-1)
 
+    k = i.clone()
+    l = j.clone()
     #random indices
-    indices = torch.randint(i.shape[0], (n,), device=device)
-    indices = indices.clamp(0, i.shape[0])
+    # print("test i[0]: ", i[0], i[1], i[-1])
+    indices_prev = torch.randint(i.shape[0], (n,), device=device) # generates n random integers between 0 (inclusive) and i.shape[0]
+    indices_prev = indices_prev.clamp(0, i.shape[0])
+
+    indices_cur = indices_prev.clone()
 
     sift_matcher = SIFTMatcher()  # Instantiate the class
-    uv_1, uv_2, index_1, index_2 = sift_matcher.match(frame, color, color2)
 
-    indices = torch.cat((indices, index_1), dim=0)
+    # print("this is in select_uv shape of i and j: ", i.size(), j.size())
+    # print("in select uv before match() h0,h1,w0,w1: ", H0, H1, W0, W1)
 
-    i = i[indices]  # (n)
-    j = j[indices]  # (n)
+    uv_prev, uv_cur, index_prev, index_cur = sift_matcher.match(i, j, frame, color_prev, color_cur)
+    
+
+    test_u_cur =i[index_cur]
+    test_v_cur = j[index_cur]
+    # print("\n\nthis is output of the index2 in select_uv:\n ",test_u_cur[:10],test_v_cur[:10])
+    # print("\n\nthis is output of the uv_cur in select_uv:\n ",uv_cur[:10])
+
+
+    # print("this is index2 in sift: ",index_cur[:10])
+
+
+
+    if index_prev is not None:
+        indices_prev = torch.cat((indices_prev, index_prev), dim=0)
+        indices_cur = torch.cat((indices_cur, index_cur), dim=0)
+    i = i[indices_prev]  # (n)
+    j = j[indices_prev]  # (n)
     # print("\ni size is: ",i.size())
+    k = k[indices_cur]
+    l = l[indices_cur]
 
+    depth_prev = depth_prev.reshape(-1)
+    color_prev = color_prev.reshape(-1, 3)
+    depth_prev = depth_prev[indices_prev]  # (n)
+    color_prev = color_prev[indices_prev]  # (n,3)
 
+    depth_cur = depth_cur.reshape(-1)
+    color_cur = color_cur.reshape(-1, 3)
+    depth_cur = depth_cur[indices_cur]  # (n)
+    color_cur = color_cur[indices_cur]  # (n,3)
 
-    depth = depth.reshape(-1)
-    color = color.reshape(-1, 3)
-    depth = depth[indices]  # (n)
-    color = color[indices]  # (n,3)
-
-
-    return i, j, depth, color
+    return i, j, depth_prev, color_prev, k, l, depth_cur, color_cur
 
 
 
@@ -143,14 +226,17 @@ def select_uv(i, j, n, depth, color, color2, frame, device='cuda:0'):
 # puts them into select_uv where some pixels are randomly sampled which then form the output tensors
 # to add specific uv chosen by sift - edit select_uv
 # output i j are the sampled i and j values
-# color2 is the image before
-def get_sample_uv(H0, H1, W0, W1, n, depth, color, color2, frame, device='cuda:0'):
+# color_cur is the current
+def get_sample_uv(H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
 
     """
-    depth = depth[H0:H1, W0:W1]
-    color = color[H0:H1, W0:W1]
+    depth_prev = depth_prev[H0:H1, W0:W1]
+    color_prev = color_prev[H0:H1, W0:W1]
+
+    depth_cur = depth_cur[H0:H1, W0:W1]
+    color_cur = color_cur[H0:H1, W0:W1]    
     #i is horizontal (width) and j is vertical (height)
     # torch.linspace(W0, W1-1, W1-W0) horizontal u coordinate in a 1D tensor
     # meshgrid takes 2 1D tensor to create 2D tensor
@@ -160,30 +246,41 @@ def get_sample_uv(H0, H1, W0, W1, n, depth, color, color2, frame, device='cuda:0
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
     i = i.t()  # transpose
     j = j.t()
-    i, j, depth, color = select_uv(i, j, n, depth, color, color2, frame, device=device)
-    return i, j, depth, color
+    i_test = i.reshape(-1)
+    # print("this is W0, H0, W0, W1: ",i,"\n",W0, H0, W1, H1,"\n")
+
+    # considering same input image size for all images i and j are the same for both images (input in select_uv())
+    i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur = select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
+
+    return i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur
 
 
 
 
-
-
-
-def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, color2, frame, device):
+# Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, stored_rays, idx, self.device)
+# 1 is the previous iteration, 2 is current iteration
+def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, depth_prev, color_prev, c2w_prev, depth_cur, color_cur, c2w_cur, frame, device):
     """
     Get n rays from the image region H0..H1, W0..W1.
     c2w is its camera pose and depth/color is the corresponding image tensor.
-
     """
-    i, j, sample_depth, sample_color = get_sample_uv(
-        H0, H1, W0, W1, n, depth, color, color2, frame, device=device)
-    rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
-    return rays_o, rays_d, sample_depth, sample_color
+    # print("\nthis is batch_Rays_d_prev: \n", batch_rays_d_prev)
+    print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
+    print("image size: ", color_cur.size())
+
+    i_prev, j_prev, sample_depth_prev, sample_color_prev, i_cur, j_cur, sample_depth_cur, sample_color_cur = get_sample_uv(
+        H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
+
+    rays_o_prev, rays_d_prev = get_rays_from_uv(i_prev, j_prev, c2w_prev, H, W, fx, fy, cx, cy, device)
+    rays_o_cur, rays_d_cur = get_rays_from_uv(i_cur, j_cur, c2w_cur, H, W, fx, fy, cx, cy, device)
+
+    return rays_o_prev, rays_d_prev, sample_depth_prev, sample_color_prev, rays_o_cur, rays_d_cur, sample_depth_cur, sample_color_cur
 
 
 
 
-
+# quaternions used to compute matrices faster with less memory
+# for rotation matrix
 def quad2rotation(quad):
     """
     Convert quaternion to rotation in batch. Since all operation in pytorch, support gradient passing.
@@ -209,7 +306,11 @@ def quad2rotation(quad):
     rot_mat[:, 2, 2] = 1 - two_s * (qi ** 2 + qj ** 2)
     return rot_mat
 
-
+# returns a 3x4 matrix like
+# [-0.9516, -0.1204,  0.2828,  2.6555]
+# [ 0.3073, -0.3925,  0.8669,  2.9814]
+# [ 0.0067,  0.9118,  0.4105,  1.3619]
+# needs to add 0 0 0 1 to get the 4x4 homogeneous matrix
 def get_camera_from_tensor(inputs):
     """
     Convert quaternion and translation to transformation matrix.

@@ -294,3 +294,49 @@ class Renderer(object):
         raw = self.eval_points(pointsf, decoders, c, stage, device)
         sigma = raw[:, -1]
         return sigma
+
+    # # notes:
+    # # ray depth is needed to know where it is
+    # # ray index also needed to know which one 
+    # #         self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy are the camera intrinsics
+    # def render_image_at_specific_pose_and_rays(self, opt: Dict[str, Any], data_dict: Dict[str, Any], pose: torch.Tensor, 
+    #                                         intr: torch.Tensor, H: int, W: int, iter: int, 
+    #                                         pixels: torch.Tensor, ray_idx: torch.Tensor, 
+    #                                         mode: str = 'train') -> Dict[str, Any]:
+    #     """Rendering of a specified set of pixels (or all) at a predefined pose. 
+
+    #     Args:
+    #         opt (edict): settings
+    #         data_dict (edict): Input data dict. Contains important fields:
+    #                         - Image: GT images, (B, 3, H, W)
+    #                         - intr: intrinsics (B, 3, 3)
+    #                         - pose: gt w2c poses (B, 3, 4)
+    #                         - pose_w2c: current estimates of w2c poses (B, 3, 4). When the camera poses
+    #                         are fixed to gt, pose=pose_w2c. Otherwise, pose_w2c is being optimized. 
+    #                         - idx: idx of the images (B)
+    #                         - depth_gt (optional): gt depth, (B, 1, H, W)
+    #                         - valid_depth_gt (optional): (B, 1, H, W)
+    #         pose: w2c poses at which to render (L, 3, 4) or (3, 4)
+    #         intr: corresponding intr matrices (L, 3, 3) or (3, 3)
+    #         H, W: size of rendered image
+    #         iter (int): iteration
+    #         pixels, ray_idx: if any of the two is specified, will render only at these locations. 
+    #                         (L, N, 2) or (N, 2)  / (L, N) or (N)
+    #         mode (str, optional): Defaults to None.
+    #     """
+    #     if len(pose.shape) == 2:
+    #         pose = pose.unsqueeze(0)
+    #     if len(intr.shape) == 2:
+    #         intr = intr.unsqueeze(0)
+
+    #     if opt.nerf.depth.param == 'inverse':
+    #         depth_range = opt.nerf.depth.range
+    #     else:
+    #         # use the one from the dataset
+    #         depth_range = data_dict.depth_range[0]
+
+    #     # render only at the specified ray_idx or pixels 
+    #     ret = self.render(opt, pose, intr=intr, pixels=pixels, ray_idx=ray_idx, mode=mode, H=H, W=W, depth_range=depth_range, iter=iter)  # [B,N,3],[B,N,1]   
+    #     ret.ray_idx = ray_idx  
+
+    #     return ret
