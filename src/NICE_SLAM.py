@@ -8,8 +8,13 @@ import torch.multiprocessing as mp
 
 from src import config
 from src.Mapper import Mapper
-#from src.Tracker import Tracker
-from src.Tracker_2d2d import Tracker
+# from src.Tracker import Tracker
+# from src.Tracker_2d2d import Tracker
+# from src.Tracker_orig import Tracker
+# from src.Tracker_2d2d_v2 import Tracker
+# from src.tracker_v3 import Tracker
+# from src.tracker_v4 import Tracker
+from src.Tracker_2d2d_cleaned import Tracker
 
 from src.utils.datasets import get_dataset
 from src.utils.Logger import Logger

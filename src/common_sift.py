@@ -10,7 +10,7 @@ from src.sift import SIFTMatcher
 
 # later create c2w 
 
-
+debug = False
 
 def as_intrinsics_matrix(intrinsics):
     """
@@ -25,43 +25,102 @@ def as_intrinsics_matrix(intrinsics):
     return K
 
 
-def proj_3D_2D(points, fx, fy, cx, cy, c2w):
-    """
-    Check if points can be projected into the camera view
-    if possible - project them and save uv coordinates
 
-    """
-    # might be starting from a different beginning
-    # seems inverted to the sift feature
-    # print("device: ",c2w.device)
 
-    c2w_copy = c2w.clone()  
+
+def replace_zero_depth(depth_tensor, gt_depth_tensor):
+    """
+    Replace zero depth values in a 1D depth tensor with a maximum depth value from gt_depth
+
+    Args:
+        depth tensor: 1D tensor with the depth values
+        max_depth_value (float): Maximum depth value to replace zero depth
+        gt_depth_tensor (tensor): tensor of gt depth
+    Returns:
+        torch.Tensor: updated tensor 1D with max_depth
+    """
+    max_depth_value = torch.max(gt_depth_tensor)
+
+    # Create a mask for zero depth values
+    zero_mask = (depth_tensor == 0)
+    
+    # Replace zero depths with the maximum depth value
+    depth_tensor[zero_mask] = max_depth_value
+    
+    return depth_tensor
+
+def ray_to_3D(sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, gt_depth,  batch_size, sift_feature_size):
+    """
+    changing 0 depth into max depth
+    0 depth means no depth information 
+    """
+    max_sift = batch_size + sift_feature_size
+    s_rays_o = sbatch_rays_o[batch_size:max_sift]
+    s_rays_d = sbatch_rays_d[batch_size:max_sift]
+    s_depth = sbatch_gt_depth[batch_size:max_sift]
+    s_depth     = replace_zero_depth(s_depth, gt_depth)
+
+    # 3D coordinates projected from the previous and current image
+    point_3D    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3]
+    return point_3D
+
+def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
+    """
+    projects 3D points into 2D space at pose given by c2w
+    input args:
+        - points: torch tensor of 3D points Nx3
+        - fx fy cx cy intrinsic camera params
+        - c2w camera pose for the image
+    output: 
+        - uv coordinates (N,2)
+    """
+    
+    # Define the concatenation tensor for [0, 0, 0, 1]
+    concat_tensor = torch.tensor([0, 0, 0, 1], device=device, dtype=c2w.dtype)
+
+    # Clone c2w to ensure we don't modify the original tensor
+    c2w = c2w.clone()
 
     # Concatenate [0, 0, 0, 1] to the copied tensor
-    concat_tensor = torch.tensor([[0, 0, 0, 1]], device=c2w.device)
-    c2w_copy = torch.cat([c2w_copy, concat_tensor], dim=0)
+    c2w = torch.cat([c2w, concat_tensor.unsqueeze(0)], dim=0)
 
+    c2w[:3, 1] *= -1.0
+    c2w[:3, 2] *= -1.0
 
-    c2w_copy[:3, 1] *= -1.0
-    c2w_copy[:3, 2] *= -1.0
-    c2w_copy_np = c2w_copy.detach().cpu().numpy()
+    # Calculate the world-to-camera transformation matrix w2c
+    w2c = torch.inverse(c2w)
 
-    # points = torch.from_numpy(points).cuda().clone()
-    w2c = np.linalg.inv(c2w_copy_np)
-    w2c = torch.from_numpy(w2c).cuda().float()
-    #camera intrinsic matrix K (u,v,w)= K * RT * X_world(homo)
-    K = torch.from_numpy(
-        np.array([[fx, .0, cx], [.0, fy, cy], [.0, .0, 1.0]]).reshape(3, 3)).cuda()
-    ones = torch.ones_like(points[:, 0]).reshape(-1, 1).cuda()
-    homo_points = torch.cat(
-        [points, ones], dim=1).reshape(-1, 4, 1).cuda().float()  # (N, 4)
-    cam_cord_homo = w2c@homo_points  # (N, 4, 1)=(4,4)*(N, 4, 1)
-    cam_cord = cam_cord_homo[:, :3]  # (N, 3, 1)
+    # Camera intrinsic matrix K
+    K = torch.tensor([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=c2w.dtype, device=device)
+
+    # Convert points to homogeneous coordinates
+    ones = torch.ones_like(points[:, 0], device=device).unsqueeze(1)
+    homo_points = torch.cat([points, ones], dim=1).unsqueeze(2)
+
+    # Transform points to camera coordinates
+    cam_cord_homo = torch.matmul(w2c, homo_points)
+
+    # Remove the homogeneous coordinate
+    cam_cord = cam_cord_homo[:, :3, :]
+
     cam_cord[:, 0] *= -1
-    uv = K.float()@cam_cord.float()
-    z = uv[:, -1:]+1e-5
-    uv = uv[:, :2]/z
-    uv = uv.float().squeeze(-1).cpu().detach().numpy()
+
+    # Project points to image plane
+    uv = torch.matmul(K, cam_cord)
+
+    z = uv[:, -1:] + 1e-5
+    uv = uv[:, :2] / z
+
+    # Convert uv coordinates to NumPy array
+    uv = uv.squeeze(-1).cpu().detach().numpy()
+
+    # Apply the correct transformation to uv coordinates
+    uv[:, 0] = W - uv[:, 0]
+    uv[:, 0] -= 2
+
+    # Convert uv to a PyTorch tensor on the specified device
+    uv = torch.from_numpy(uv).to(device)
+    
     return uv
 
 
@@ -141,8 +200,6 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 
     # Create a tensor with recovered UV coordinates
     # uv_recovered = torch.stack((u_coord_recovered, v_coord_recovered), dim=1)
-
-
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w).to(device)
 
@@ -213,7 +270,7 @@ def select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_
     depth_cur = depth_cur[indices_cur]  # (n)
     color_cur = color_cur[indices_cur]  # (n,3)
 
-    return i, j, depth_prev, color_prev, k, l, depth_cur, color_cur
+    return  uv_prev, uv_cur, i, j, depth_prev, color_prev, k, l, depth_cur, color_cur
 
 
 
@@ -250,9 +307,9 @@ def get_sample_uv(H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cu
     # print("this is W0, H0, W0, W1: ",i,"\n",W0, H0, W1, H1,"\n")
 
     # considering same input image size for all images i and j are the same for both images (input in select_uv())
-    i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur = select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
+    uv_prev, uv_cur, i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur = select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
 
-    return i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur
+    return  uv_prev, uv_cur, i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur
 
 
 
@@ -265,16 +322,17 @@ def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, depth_prev, color_
     c2w is its camera pose and depth/color is the corresponding image tensor.
     """
     # print("\nthis is batch_Rays_d_prev: \n", batch_rays_d_prev)
-    print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
-    print("image size: ", color_cur.size())
+    if debug == True:
+        print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
+        print("image size: ", color_cur.size())
 
-    i_prev, j_prev, sample_depth_prev, sample_color_prev, i_cur, j_cur, sample_depth_cur, sample_color_cur = get_sample_uv(
+    uv_prev, uv_cur, i_prev, j_prev, sample_depth_prev, sample_color_prev, i_cur, j_cur, sample_depth_cur, sample_color_cur = get_sample_uv(
         H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
 
     rays_o_prev, rays_d_prev = get_rays_from_uv(i_prev, j_prev, c2w_prev, H, W, fx, fy, cx, cy, device)
     rays_o_cur, rays_d_cur = get_rays_from_uv(i_cur, j_cur, c2w_cur, H, W, fx, fy, cx, cy, device)
 
-    return rays_o_prev, rays_d_prev, sample_depth_prev, sample_color_prev, rays_o_cur, rays_d_cur, sample_depth_cur, sample_color_cur
+    return  uv_prev, uv_cur, rays_o_prev, rays_d_prev, sample_depth_prev, sample_color_prev, rays_o_cur, rays_d_cur, sample_depth_cur, sample_color_cur
 
 
 

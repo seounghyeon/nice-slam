@@ -155,7 +155,7 @@ class SIFTMatcher:
 
         # starts at Wedge is 20
         uv_2 += 20
-        print("\nuv_2 in sift: \n", uv_2[:10])
+        # print("\nuv_2 in sift: \n", uv_2[:10])
 
 
 

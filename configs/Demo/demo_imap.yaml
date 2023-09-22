@@ -1,6 +1,6 @@
 dataset: 'scannet'
 sync_method: strict
-verbose: False
+verbose: True
 meshing:
   resolution: 256
 tracking:

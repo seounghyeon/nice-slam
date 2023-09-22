@@ -194,7 +194,6 @@ class Renderer(object):
             depth, uncertainty, color, weights = raw2outputs_nerf_color(
                 raw, z_vals, rays_d, occupancy=self.occupancy, device=device)
             return depth, uncertainty, color
-
         return depth, uncertainty, color
 
     def render_img(self, c, decoders, c2w, device, stage, gt_depth=None):

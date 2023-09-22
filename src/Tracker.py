@@ -208,12 +208,12 @@ class Tracker(object):
                 #camera_tensor = get_tensor_from_camera(
                 #    estimated_new_cam_c2w.detach())
                 
-                if toggle_gt_c2w == False:
-                    camera_tensor = get_tensor_from_camera(                     #changed to gt
-                        gt_c2w)
-                else:
-                    camera_tensor = get_tensor_from_camera(
-                    estimated_new_cam_c2w.detach())
+                # if toggle_gt_c2w == True:
+                #     camera_tensor = get_tensor_from_camera(                     #changed to gt
+                #         gt_c2w)
+                # else:
+                camera_tensor = get_tensor_from_camera(
+                estimated_new_cam_c2w.detach())
 
 
                 if self.seperate_LR:
@@ -264,16 +264,16 @@ class Tracker(object):
                         candidate_cam_tensor = camera_tensor.clone().detach()
 
 
-                # RUN ONLY ONCE AND DO IT TO GET THE RENDERED IMAGE AND PROCESS IT WITH sift
-                for cam_iter in range(1):
-                    if self.seperate_LR:
-                        camera_tensor = torch.cat([quad, T], 0).to(self.device)
+                # # RUN ONLY ONCE AND DO IT TO GET THE RENDERED IMAGE AND PROCESS IT WITH sift
+                # for cam_iter in range(1):
+                #     if self.seperate_LR:
+                #         camera_tensor = torch.cat([quad, T], 0).to(self.device)
 
-                    # Run the vis_rendered once to create the rendered image explicitly here
-                    # print("Before calling vis_rendered")
-                    self.visualizer.vis_rendered(
-                        idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
-                        # idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders) from mapper
+                # Run the vis_rendered once to create the rendered image explicitly here
+                # print("Before calling vis_rendered")
+                self.visualizer.vis_rendered(
+                    idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
+                    # idx, joint_iter, cur_gt_depth, cur_gt_color, cur_c2w, self.c, self.decoders) from mapper
 
 
 

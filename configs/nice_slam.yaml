@@ -27,7 +27,7 @@ meshing:
 tracking:
   ignore_edge_W: 20
   ignore_edge_H: 20
-  use_color_in_tracking: True
+  use_color_in_tracking: False
   device: "cuda:0"
   handle_dynamic: True
   vis_freq: 50

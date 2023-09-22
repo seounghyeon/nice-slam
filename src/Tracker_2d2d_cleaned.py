@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common_sift import (get_camera_from_tensor, get_samples_sift,
-                        get_tensor_from_camera, proj_3D_2D, replace_zero_depth)
+                        get_tensor_from_camera, proj_3D_2D, replace_zero_depth, ray_to_3D)
 
 from src.common import (get_samples)
 
@@ -19,6 +19,8 @@ from src.loss_functions.loss import huber_loss
 
 from src.utils.datasets import get_dataset
 from src.utils.Visualizer import Visualizer
+
+import torch.nn as nn
 
 debug = False
 class Tracker(object):
@@ -81,7 +83,7 @@ class Tracker(object):
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
 
         Args:
-            camera_tensor (tensor): camera tensor.
+            camera_tensor (tensor): camera tensor.  - is the optimized thing weight update backprop
             gt_color (tensor): ground truth color image of the current frame.
             gt_depth (tensor): ground truth depth image of the current frame.
             batch_size (int): batch size, number of sampling rays. - additional 100 sift selected added in get_samples_sift()
@@ -90,18 +92,33 @@ class Tracker(object):
         Returns:
             loss (float): The value of loss.
         """
+        # random_numbers = torch.cuda.FloatTensor(7).uniform_(0.01, 0.4)
+        # camera_tensor = prev_camera_tensor + random_numbers
+        # print("camera tensor inside: ", camera_tensor)
+        # print("camera tensor previous inside: ", prev_camera_tensor)
+
+
+
+
         device = self.device
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
         optimizer.zero_grad()
+        print("camera_tensor inside optimize 2d2d: \n", camera_tensor)
+        
+        
+        print("prev_camera_tensor inside optimize 2d2d: \n", prev_camera_tensor)
+
+        # print("optimizer inside optimize: \n", optimizer.grad)
+
         c2w = get_camera_from_tensor(camera_tensor)
         prev_c2w = get_camera_from_tensor(prev_camera_tensor)
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H
         
         if debug == True:
-            # print("wedge and hedge are: ", Wedge, Hedge)
-        # batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
-        #     Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+            print("wedge and hedge are: ", Wedge, Hedge)
+            batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
+            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
 
         # get sift rays for both images
         # then calculate loss
@@ -112,109 +129,75 @@ class Tracker(object):
             1 is previous
             2 is current
             '''
+
         uv_prev, uv_cur, sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, sbatch_gt_color, sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, sbatch_gt_color2 = get_samples_sift(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device)
-        # print("in cam_pose_optimization gt_color size: ", gt_color.size())
-        # print("in cam_pose_optimization H and W size: ", H, W)
+
+        uv_prev = uv_prev.float()
+        uv_cur = uv_cur.float()
         batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
 
-
-        max_sift = batch_size + 100
-        # sizes of rays_o and rays_d is [100,3]
-        s_rays_o = sbatch_rays_o[batch_size:max_sift]
-        s_rays_d = sbatch_rays_d[batch_size:max_sift]
-        s_rays_o2 = sbatch_rays_o2[batch_size:max_sift]
-        s_rays_d2 = sbatch_rays_d2[batch_size:max_sift]
-
-        # maybe change to range 
-        # s_depth sizes are [100]
-        s_depth = sbatch_gt_depth[batch_size:max_sift]
-        s_depth2 = sbatch_gt_depth2[batch_size:max_sift]
-        # changing 0 depth into max depth
-        # 0 depth means no information 
-        s_depth     = replace_zero_depth(s_depth, gt_depth_prev)
-        s_depth2    = replace_zero_depth(s_depth2, gt_depth)
-        # print("sdepth2 current:\n ", s_depth2[:10])
+        sift_feature_size = 100
 
 
-        # 3D coordinates in 3D
-        point_3D_prev    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3]
-        point_3D_current = s_rays_o2 + s_rays_d2 * s_depth2.unsqueeze(1)
 
-        # 
-        uv_in_cur = proj_3D_2D(point_3D_prev, fx, fy, cx, cy, prev_c2w)  # is float
-        uv_in_cur = torch.from_numpy(uv_in_cur).to(self.device)
+        # get 3D points for the sift feature rays
+        point_3D_current = ray_to_3D(sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, gt_depth, batch_size, sift_feature_size)
+        point_3D_prev = ray_to_3D(sbatch_rays_o, sbatch_rays_d2, sbatch_gt_depth2, gt_depth_prev, batch_size, sift_feature_size)
 
+        # previous image 3D points in current frame 2D / current image 3D points in previous frame 2D
+        prev_in_cur = proj_3D_2D(point_3D_prev, W, fx, fy, cx, cy, c2w, self.device)  # is float
+        cur_in_prev = proj_3D_2D(point_3D_current, W, fx, fy, cx, cy, prev_c2w, self.device)  # is float
+
+        cur_in_prev = cur_in_prev
+        prev_in_cur = prev_in_cur
+
+
+        # print("PREV IN CURRRRRRRRRRRR. ", prev_in_cur)
         if debug:
             # outputs the projected 3D point of current frame backprojected into 2D
             # should be the same as sift feature uv
             # check difference for different data sets
-            uv_in_cur_test = proj_3D_2D(point_3D_current, fx, fy, cx, cy, c2w)  # is float
-            uv_in_cur_test[:, 0] = W-uv_in_cur_test[:, 0]
-            uv_in_cur_test[:, 0] = uv_in_cur_test[:, 0] - 2
-            uv_in_cur_test = np.round(uv_in_cur_test).astype(int)
+            uv_in_cur_test = proj_3D_2D(point_3D_current, W, fx, fy, cx, cy, c2w, self.device)   # is float
+            # uv_in_cur_test = np.round(uv_in_cur_test).astype(int)
             print("uv_prev and uv_cur\n", uv_prev[:5],"\n", uv_cur[:5])
             print("uv_in_cur_test:\n ", uv_in_cur_test[:5])
 
 
+        # these go into loss and are backpropagated    
+        print("uv_prev: \n", uv_prev,"\n")
+        print("cur_in_prev:\n ", cur_in_prev)
 
-        # prev rays in cur frame
-        prev_in_cur = proj_3D_2D(point_3D_prev, fx, fy, cx, cy, c2w)  # is float
-        prev_in_cur[:, 0] = W-prev_in_cur[:, 0]
-        prev_in_cur[:, 0] = prev_in_cur[:, 0] - 3
-        #print("prev_in_cur: \n", prev_in_cur[:10])
-        prev_in_cur = torch.from_numpy(prev_in_cur).to(self.device)
+        
 
-        # cur rays in prev frame
-        cur_in_prev = proj_3D_2D(point_3D_current, fx, fy, cx, cy, prev_c2w)  # is float
-        cur_in_prev[:, 0] = W-cur_in_prev[:, 0]
-        cur_in_prev[:, 0] = cur_in_prev[:, 0] - 3
-        #print("cur_in_prev: \n", cur_in_prev[:10])
-        cur_in_prev = torch.from_numpy(cur_in_prev).to(self.device)
+        loss_out_test = torch.nn.functional.huber_loss(cur_in_prev, uv_prev, reduction='mean', delta=1.0)
 
-        loss_out_test = huber_loss(prev_in_cur, uv_cur, delta=1)
-        print("testing loss of huber_loss output:\n", loss_out_test)
+        # loss_out_test = torch.tensor(loss_out_test, requires_grad=True)
+        # print("testing loss of huber_loss output:\n", loss_out_test)
+        
+        print("printing loss_out_test should be fn: ", loss_out_test)
 
-        if self.nice:
-            # should pre-filter those out of bounding box depth value
-            with torch.no_grad():
-                det_rays_o = batch_rays_o.clone().detach().unsqueeze(-1)  # (N, 3, 1)
-                det_rays_d = batch_rays_d.clone().detach().unsqueeze(-1)  # (N, 3, 1)
-                t = (self.bound.unsqueeze(0).to(device)-det_rays_o)/det_rays_d
-                t, _ = torch.min(torch.max(t, dim=2)[0], dim=1)
-                inside_mask = t >= batch_gt_depth
-            batch_rays_d = batch_rays_d[inside_mask]
-            batch_rays_o = batch_rays_o[inside_mask]
-            batch_gt_depth = batch_gt_depth[inside_mask]
-            batch_gt_color = batch_gt_color[inside_mask]
 
-        ret = self.renderer.render_batch_ray(
-            self.c, self.decoders, batch_rays_d, batch_rays_o,  self.device, stage='color',  gt_depth=batch_gt_depth)
-        depth, uncertainty, color = ret
+        # print("loss_out_test after all: \n", loss_out_test)
+        # print("gradient before: ", camera_tensor.grad)
 
-        uncertainty = uncertainty.detach()
-        if self.handle_dynamic:
-            tmp = torch.abs(batch_gt_depth-depth)/torch.sqrt(uncertainty+1e-10)
-            mask = (tmp < 10*tmp.median()) & (batch_gt_depth > 0)
-        else:
-            mask = batch_gt_depth > 0
+        if camera_tensor.grad is not None:
+            print("gradient before: ", camera_tensor.grad)
 
-        loss = (torch.abs(batch_gt_depth-depth) /
-                torch.sqrt(uncertainty+1e-10))[mask].sum()
+        # L1_loss = nn.L1Loss()
+        # print("gradient cam_tensor before: \n", camera_tensor.grad)
 
-        if self.use_color_in_tracking:
-            color_loss = torch.abs(
-                batch_gt_color - color)[mask].sum()
-            loss += self.w_color_loss*color_loss
-        # print("this is the loss: ", loss)
-        # loss.backward()
-        # optimizer.step()
-        # optimizer.zero_grad()
-        # return loss.item()
-        loss_out_test.requires_grad_(True)
         loss_out_test.backward()
         optimizer.step()
+        # print("gradient cam_tensor after: \n", camera_tensor.grad)
+
+        print("loss_out_test: ", loss_out_test)
+        if camera_tensor.grad is not None:
+            print("gradient before: ", camera_tensor.grad)
+
+        # print("camera_tensor inside optimize 2d2d AFTER OPTIM: \n", camera_tensor)
+
         optimizer.zero_grad()
         return loss_out_test.item()
 
@@ -303,7 +286,7 @@ class Tracker(object):
                 gt_camera_tensor = get_tensor_from_camera(gt_c2w)
                 if self.const_speed_assumption and idx-2 >= 0:
                     pre_c2w = pre_c2w.float()
-                    print("pre_c2w at beginning: \n", pre_c2w)
+                    # print("pre_c2w at beginning: \n", pre_c2w)
 
                     delta = pre_c2w@self.estimate_c2w_list[idx-2].to(
                         device).float().inverse()
@@ -314,38 +297,17 @@ class Tracker(object):
                 #camera_tensor = get_tensor_from_camera(
                 #    estimated_new_cam_c2w.detach())
                 
-                if toggle_gt_c2w == True:
-                    camera_tensor = get_tensor_from_camera(                     #changed to gt
-                        gt_c2w)
-                    print("toggle_gt_c2w is true")
-                else:
-                    camera_tensor = get_tensor_from_camera(
-                    estimated_new_cam_c2w.detach())
-                    print("toggle_gt_c2w is false")
-                    print("estimated_new_cam_c2w: \n", estimated_new_cam_c2w)
 
-                # seperate learning of translation and rotation? 
-                # is false in demo and replica
-                if self.seperate_LR:
-                    print("this is wrong")
-                    camera_tensor = camera_tensor.to(device).detach()
-                    T = camera_tensor[-3:]
-                    quad = camera_tensor[:4]
-                    cam_para_list_quad = [quad]
-                    quad = Variable(quad, requires_grad=True)
-                    T = Variable(T, requires_grad=True)
-                    camera_tensor = torch.cat([quad, T], 0)
-                    cam_para_list_T = [T]
-                    cam_para_list_quad = [quad]
-                    optimizer_camera = torch.optim.Adam([{'params': cam_para_list_T, 'lr': self.cam_lr},
-                                                         {'params': cam_para_list_quad, 'lr': self.cam_lr*0.2}])
-                # most datasets this used
-                else:
-                    camera_tensor = Variable(
-                        camera_tensor.to(device), requires_grad=True)
-                    cam_para_list = [camera_tensor]
-                    optimizer_camera = torch.optim.Adam(
-                        cam_para_list, lr=self.cam_lr)
+                camera_tensor = get_tensor_from_camera(
+                estimated_new_cam_c2w.detach())
+                print("estimated_new_cam_c2w: \n", estimated_new_cam_c2w)
+
+
+                camera_tensor = Variable(
+                    camera_tensor.to(device), requires_grad=True)
+                cam_para_list = [camera_tensor]
+                optimizer_camera = torch.optim.Adam(
+                    cam_para_list, lr=self.cam_lr)
 
                 initial_loss_camera_tensor = torch.abs(
                     gt_camera_tensor.to(device)-camera_tensor).mean().item()
@@ -358,12 +320,12 @@ class Tracker(object):
 
                 """
                 for cam_iter in range(self.num_cam_iters):      # run optimization   self.num_cam_iters
-                    if self.seperate_LR:
-                        camera_tensor = torch.cat([quad, T], 0).to(self.device)
+                    print("cam_iter: ", cam_iter)
+
+                    # print("current cam_tensor first: ", camera_tensor)
 
                     self.visualizer.vis(
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
-
                     loss = self.cam_pose_optimization_sift(
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, 
                         prev_camera_tensor, gt_depth_prev, gt_color_prev, idx)
@@ -371,31 +333,35 @@ class Tracker(object):
                     # print("batch_Rays_d_prev = ", batch_rays_d_prev)
                     # print("size of batch_rays_d_prev = ", batch_rays_d_prev.size())
                     # print("size of batch_rays_o_prev = ", batch_rays_o_prev.size())
-                    print ("this is loss:\n", loss)
 
                     if cam_iter == 0:
                         initial_loss = loss
-
+                        print("initial_loss cor cam iter 0 = ", initial_loss)
                     loss_camera_tensor = torch.abs(gt_camera_tensor.to(device)-camera_tensor).mean().item()
-
                     if self.verbose:
                         if cam_iter == self.num_cam_iters-1:
                             print(
                                 f'Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ' +
                                 f'camera tensor error: {initial_loss_camera_tensor:.4f}->{loss_camera_tensor:.4f}')
+
+                    print("loss: ", loss)   
+                    # print("current cam_tensor second: ", camera_tensor)
+
+                    print("this is current min loss: ", current_min_loss)
                     if loss < current_min_loss:
                         current_min_loss = loss
+                        print("current min loss: ",current_min_loss)
                     candidate_cam_tensor = camera_tensor.clone().detach()
                 # if debug == True:
-                print("current and previous cam_tensor:\n", camera_tensor,"\n",prev_camera_tensor, "\n")
 
 
                 # renders and outputs the image
                 # every out_num image is rendered and saved in rendered_images
-                out_num = 10
-                if (idx%out_num == 0):
-                    self.visualizer.vis_rendered(
-                        idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
+                if (debug == True):
+                    out_num = 10
+                    if (idx%out_num == 0):
+                        self.visualizer.vis_rendered(
+                            idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
 
 
 
@@ -405,10 +371,11 @@ class Tracker(object):
                 c2w = get_camera_from_tensor(
                     candidate_cam_tensor.clone().detach())
                 c2w = torch.cat([c2w, bottom], dim=0)
+                # print("this is c2w in normal: \n", c2w)
             self.estimate_c2w_list[idx] = c2w.clone().cpu()
             self.gt_c2w_list[idx] = gt_c2w.clone().cpu()                #gt of c2w list is read like this
             pre_c2w = c2w.clone()
-            print("pre_c2w at end: \n", pre_c2w)
+            # print("pre_c2w at end: \n", pre_c2w)
 
             self.idx[0] = idx
             if self.low_gpu_mem:
