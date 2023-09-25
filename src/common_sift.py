@@ -59,9 +59,9 @@ def ray_to_3D(sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, gt_depth,  batch_si
     s_rays_d = sbatch_rays_d[batch_size:max_sift]
     s_depth = sbatch_gt_depth[batch_size:max_sift]
     s_depth     = replace_zero_depth(s_depth, gt_depth)
-
     # 3D coordinates projected from the previous and current image
-    point_3D    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3]
+    point_3D    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3] torch.float32
+
     return point_3D
 
 def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
@@ -74,12 +74,9 @@ def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
     output: 
         - uv coordinates (N,2)
     """
-    
     # Define the concatenation tensor for [0, 0, 0, 1]
-    concat_tensor = torch.tensor([0, 0, 0, 1], device=device, dtype=c2w.dtype)
-
+    concat_tensor = torch.tensor([0, 0, 0, 1], device=device, dtype=c2w.dtype)      # is torch.float32
     # Clone c2w to ensure we don't modify the original tensor
-    c2w = c2w.clone()
 
     # Concatenate [0, 0, 0, 1] to the copied tensor
     c2w = torch.cat([c2w, concat_tensor.unsqueeze(0)], dim=0)
@@ -111,15 +108,14 @@ def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
     z = uv[:, -1:] + 1e-5
     uv = uv[:, :2] / z
 
-    # Convert uv coordinates to NumPy array
-    uv = uv.squeeze(-1).cpu().detach().numpy()
 
     # Apply the correct transformation to uv coordinates
     uv[:, 0] = W - uv[:, 0]
     uv[:, 0] -= 2
-
-    # Convert uv to a PyTorch tensor on the specified device
-    uv = torch.from_numpy(uv).to(device)
+    # print("these are the points size: \n", points.size())
+    # print("uv.size: ", uv.size())
+    num_points = points.size(0)
+    uv = uv.view(num_points, 2)
     
     return uv
 
@@ -183,7 +179,7 @@ def random_select(l, k):
 def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     """
     Get corresponding rays from input uv.
-
+    c2w backprop works!
     """
 
 
@@ -202,7 +198,7 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     # uv_recovered = torch.stack((u_coord_recovered, v_coord_recovered), dim=1)
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w).to(device)
-
+        print("c2w is numpy CHECK IT GRADIENT")
     dirs = torch.stack(
         [(i-cx)/fx, -(j-cy)/fy, -torch.ones_like(i)], -1).to(device)
     dirs = dirs.reshape(-1, 1, 3)

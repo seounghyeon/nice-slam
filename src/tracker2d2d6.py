@@ -22,6 +22,10 @@ from src.utils.Visualizer import Visualizer
 
 import torch.nn as nn
 
+from src.batched_geometry_utils import batch_project_to_other_img
+
+
+
 debug = False
 class Tracker(object):
     def __init__(self, cfg, args, slam
@@ -103,10 +107,10 @@ class Tracker(object):
         device = self.device
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
         optimizer.zero_grad()
-        # print("camera_tensor inside optimize 2d2d: \n", camera_tensor)
+        print("camera_tensor inside optimize 2d2d: \n", camera_tensor)
         
         
-        # print("prev_camera_tensor inside optimize 2d2d: \n", prev_camera_tensor)
+        print("prev_camera_tensor inside optimize 2d2d: \n", prev_camera_tensor)
 
         # print("optimizer inside optimize: \n", optimizer.grad)
 
@@ -133,6 +137,8 @@ class Tracker(object):
         uv_prev, uv_cur, sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, sbatch_gt_color, sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, sbatch_gt_color2 = get_samples_sift(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device)
 
+        uv_prev = uv_prev.float().requires_grad_(True)
+        uv_cur = uv_cur.float().requires_grad_(True)
 
         # batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
         #     Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
@@ -151,13 +157,24 @@ class Tracker(object):
         # get 3D points for the sift feature rays
         point_3D_current = ray_to_3D(sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, gt_depth, batch_size, sift_feature_size)
         point_3D_prev = ray_to_3D(sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, gt_depth_prev, batch_size, sift_feature_size)
+
         # previous image 3D points in current frame 2D / current image 3D points in previous frame 2D
         prev_in_cur = proj_3D_2D(point_3D_prev, W, fx, fy, cx, cy, c2w, self.device)  # is float
         cur_in_prev = proj_3D_2D(point_3D_current, W, fx, fy, cx, cy, prev_c2w, self.device)  # is float
 
-        # intermediate value dont need CHANGE THIS
-        # cur_in_prev = cur_in_prev.requires_grad_(True)
-        # prev_in_cur = prev_in_cur.requires_grad_(True)
+
+
+
+
+
+
+
+
+
+        
+
+        cur_in_prev = cur_in_prev.requires_grad_(True)
+        prev_in_cur = prev_in_cur.requires_grad_(True)
 
 
         # print("PREV IN CURRRRRRRRRRRR. ", prev_in_cur)
@@ -172,23 +189,26 @@ class Tracker(object):
 
 
         # these go into loss and are backpropagated    
-        # print("uv_prev: \n", uv_prev,"\n")
-        # print("cur_in_prev:\n ", cur_in_prev)
+        print("uv_prev: \n", uv_prev,"\n")
+        print("cur_in_prev:\n ", cur_in_prev)
 
         
 
 
-        # prediction, target
+
         loss_out_test = torch.nn.functional.huber_loss(cur_in_prev, uv_prev, reduction='mean', delta=1.0)
 
         # loss_out_test = torch.tensor(loss_out_test, requires_grad=True)
         # print("testing loss of huber_loss output:\n", loss_out_test)
         
-        # print("printing loss_out_test should be fn: ", loss_out_test)
+        print("printing loss_out_test should be fn: ", loss_out_test)
 
 
         # print("loss_out_test after all: \n", loss_out_test)
         # print("gradient before: ", camera_tensor.grad)
+
+        if camera_tensor.grad is not None:
+            print("gradient before: ", camera_tensor.grad)
 
         # L1_loss = nn.L1Loss()
         # print("gradient cam_tensor before: \n", camera_tensor.grad)
@@ -197,9 +217,9 @@ class Tracker(object):
         optimizer.step()
         # print("gradient cam_tensor after: \n", camera_tensor.grad)
 
-        # print("loss_out_test: ", loss_out_test)
-        # if camera_tensor.grad is not None:
-        #     print("gradient after: ", camera_tensor.grad)
+        print("loss_out_test: ", loss_out_test)
+        if camera_tensor.grad is not None:
+            print("gradient before: ", camera_tensor.grad)
 
         # print("camera_tensor inside optimize 2d2d AFTER OPTIM: \n", camera_tensor)
 
@@ -241,7 +261,7 @@ class Tracker(object):
         prev_camera_tensor = None
         # batch_rays_d_prev = None 
         # batch_rays_o_prev = None
-
+        
         # main loop for tracker - runs for all frames
         for idx, gt_color, gt_depth, gt_c2w in pbar:
             if not self.verbose:
@@ -352,6 +372,7 @@ class Tracker(object):
                     print("loss: ", loss)   
                     # print("current cam_tensor second: ", camera_tensor)
 
+                    print("this is current min loss: ", current_min_loss)
                     if loss < current_min_loss:
                         current_min_loss = loss
                         print("current min loss: ",current_min_loss)

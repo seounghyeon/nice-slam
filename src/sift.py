@@ -201,6 +201,7 @@ class SIFTMatcher:
         matched_image = cv2.drawMatches(image1, keypoints_1, image2, keypoints_2, matches[:100], None, flags=2)
         cv2.imwrite(f'/home/shham/Pictures/matched_images/match_{idx}.jpg', matched_image)
         cv2.imwrite(f'/home/shham/Pictures/test_img/match_{idx}.jpg', image2)
-
+        uv_1 = uv_1.to(torch.float32)
+        uv_2 = uv_2.to(torch.float32)
         return uv_1, uv_2, index_1, index_2
 
