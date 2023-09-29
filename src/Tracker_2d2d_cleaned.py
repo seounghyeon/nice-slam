@@ -23,6 +23,7 @@ from src.utils.Visualizer import Visualizer
 import torch.nn as nn
 
 debug = False
+debug2 = True
 class Tracker(object):
     def __init__(self, cfg, args, slam
                  ):
@@ -81,7 +82,7 @@ class Tracker(object):
                                    optimizer, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx):
         """
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
-
+        Uses GT images and depth
         Args:
             camera_tensor (tensor): camera tensor.  - is the optimized thing weight update backprop
             gt_color (tensor): ground truth color image of the current frame.
@@ -92,13 +93,6 @@ class Tracker(object):
         Returns:
             loss (float): The value of loss.
         """
-        # random_numbers = torch.cuda.FloatTensor(7).uniform_(0.01, 0.4)
-        # camera_tensor = prev_camera_tensor + random_numbers
-        # print("camera tensor inside: ", camera_tensor)
-        # print("camera tensor previous inside: ", prev_camera_tensor)
-
-
-
 
         device = self.device
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
@@ -179,7 +173,8 @@ class Tracker(object):
 
 
         # prediction, target
-        loss_out_test = torch.nn.functional.huber_loss(cur_in_prev, uv_prev, reduction='mean', delta=1.0)
+        # loss_out_test = torch.nn.functional.huber_loss(uv_prev, cur_in_prev, reduction='mean', delta=1.0)
+        loss_out_test = torch.nn.functional.huber_loss(uv_cur, prev_in_cur, reduction='mean', delta=1.0)
 
         # loss_out_test = torch.tensor(loss_out_test, requires_grad=True)
         # print("testing loss of huber_loss output:\n", loss_out_test)
@@ -324,7 +319,7 @@ class Tracker(object):
                 gets sparf rays and computes 3D point coordinates
 
                 """
-                for cam_iter in range(self.num_cam_iters):      # run optimization   self.num_cam_iters
+                for cam_iter in range(60):      # run optimization   self.num_cam_iters
                     print("cam_iter: ", cam_iter)
 
                     # print("current cam_tensor first: ", camera_tensor)
@@ -361,8 +356,8 @@ class Tracker(object):
 
                 # renders and outputs the image
                 # every out_num image is rendered and saved in rendered_images
-                if (debug == True):
-                    out_num = 10
+                if (debug2 == True):
+                    out_num = 1
                     if (idx%out_num == 0):
                         self.visualizer.vis_rendered(
                             idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
