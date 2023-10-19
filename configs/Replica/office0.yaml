@@ -1,4 +1,8 @@
 inherit_from: configs/Replica/replica.yaml
+
+tracking:
+  ignore_edge_W: 20
+  ignore_edge_H: 20
 mapping:
   bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]
   marching_cubes_bound: [[-5.5,5.9],[-6.7,5.4],[-4.7,5.3]]

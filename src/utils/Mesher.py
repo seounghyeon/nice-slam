@@ -278,6 +278,7 @@ class Mesher(object):
         return_mesh = trimesh.Trimesh(vertices=points, faces=faces)
         return return_mesh
 
+    # self.eval_points(pnts, decoders, c, 'coarse', device).cpu().numpy()[:, -1])
     def eval_points(self, p, decoders, c=None, stage='color', device='cuda:0'):
         """
         Evaluates the occupancy and/or color value for the points.

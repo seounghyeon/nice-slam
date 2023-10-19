@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common_sift import (get_camera_from_tensor, get_samples_sift,
-                        get_tensor_from_camera, proj_3D_2D, replace_zero_depth, ray_to_3D)
+                        get_tensor_from_camera, proj_3D_2D, ray_to_3D)
 
 from src.common import (get_samples)
 
@@ -22,10 +22,17 @@ from src.utils.Visualizer import Visualizer
 
 import torch.nn as nn
 
+
+from src.conv_onet.models.decoder import MLP_no_xyz
+from src.utils.Mesher import Mesher
+
 debug = False
 debug2 = True
 class Tracker(object):
-    def __init__(self, cfg, args, slam
+    def __init__(self, cfg, args, slam,
+                 dim=3, c_dim=32,
+                 coarse_grid_len=2.0,  middle_grid_len=0.16, fine_grid_len=0.16,
+                 color_grid_len=0.16, hidden_size=32, coarse=False, pos_embedding_method='fourier'
                  ):
         self.cfg = cfg
         self.args = args
@@ -77,6 +84,8 @@ class Tracker(object):
                                      renderer=self.renderer, verbose=self.verbose, device=self.device)
         self.H, self.W, self.fx, self.fy, self.cx, self.cy = slam.H, slam.W, slam.fx, slam.fy, slam.cx, slam.cy
 
+        self.mesher = Mesher(cfg, args, slam)  # Create an instance of Mesher
+
 
     def cam_pose_optimization_sift(self, camera_tensor, gt_color, gt_depth, batch_size, 
                                    optimizer, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx):
@@ -109,7 +118,7 @@ class Tracker(object):
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H
         
-        if debug == True:
+        if debug == False:
             print("wedge and hedge are: ", Wedge, Hedge)
             batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
@@ -128,19 +137,18 @@ class Tracker(object):
             Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device)
 
 
-        # batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
-        #     Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, self.device)
+
 
         sift_feature_size = 100
 
-        ret_cur = self.renderer.render_batch_ray(
-            self.c, self.decoders, sbatch_rays_d2, sbatch_rays_o2,  self.device, stage='color',  gt_depth=sbatch_gt_depth2)
-        depth_cur, uncertainty_cur, color_cur = ret_cur
+        # ret_cur = self.renderer.render_batch_ray(
+        #     self.c, self.decoders, sbatch_rays_d2, sbatch_rays_o2,  self.device, stage='color',  gt_depth=sbatch_gt_depth2)
+        # depth_cur, uncertainty_cur, color_cur = ret_cur
 
 
-        ret_prev = self.renderer.render_batch_ray(
-            self.c, self.decoders, sbatch_rays_d, sbatch_rays_o,  self.device, stage='color',  gt_depth=sbatch_gt_depth)
-        depth_prev, uncertainty_prev, color_prev = ret_prev
+        # ret_prev = self.renderer.render_batch_ray(
+        #     self.c, self.decoders, sbatch_rays_d, sbatch_rays_o,  self.device, stage='color',  gt_depth=sbatch_gt_depth)
+        # depth_prev, uncertainty_prev, color_prev = ret_prev
         # fix THIS MAYBE WRONG
         # get 3D points for the sift feature rays
         point_3D_current = ray_to_3D(sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, gt_depth, batch_size, sift_feature_size)
@@ -148,7 +156,7 @@ class Tracker(object):
         # previous image 3D points in current frame 2D / current image 3D points in previous frame 2D
         prev_in_cur = proj_3D_2D(point_3D_prev, W, fx, fy, cx, cy, c2w, self.device)  # is float
         cur_in_prev = proj_3D_2D(point_3D_current, W, fx, fy, cx, cy, prev_c2w, self.device)  # is float
-
+        print("POINT 3D: ", point_3D_current[:10])
         # intermediate value dont need CHANGE THIS
         # cur_in_prev = cur_in_prev.requires_grad_(True)
         # prev_in_cur = prev_in_cur.requires_grad_(True)
@@ -172,10 +180,64 @@ class Tracker(object):
         
 
 
+
+
+        p_test_prev = point_3D_prev 
+        # print("p_test_prev point: \n", p_test_prev[:3])
+
+        p_test = point_3D_current
+        # print("p_test point: \n", p_test[:3])
+
+
+        # print("print the first 3D current: ", p)
+        # # c_grid = None
+        # stage = 'middle'
+        # if stage == 'middle':
+        #             middle_occ = self.fine_decoder(p, self.c)
+        #             middle_occ = middle_occ.squeeze(0)
+        #             raw = torch.zeros(middle_occ.shape[0], 4).to(device).float()
+        #             raw[..., -1] = middle_occ
+        #             print("raw_output: \n", raw)
+        #             # print("RAW IN middle:\n", raw.size())
+        #             return raw
+        
+
+        # # Call the forward method of the mlp_model to sample voxels
+        # sampled_voxels = self.mlp_model(point_3D_current[:10], self.c)
+        # # print("sample_voxel: \n", sampled_voxels)
+
+        # # Print the sampled voxels or process them further as needed
+        # print("Sampled Voxels: ", sampled_voxels)
+
+
+        occupancy_and_color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'fine', device)
+        # print("occupancy and color out:\n ",occupancy_and_color_cur[:3])
+        occupancy_and_color_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'fine', device)
+        # print("occupancy and color out_prev:\n ",occupancy_and_color_prev[:3])
+
+
+        occupancy_middle_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'middle', device)
+        # print("occupancy and color out middle:\n ",occupancy_middle_cur[:3])
+        occupancy_middle_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'middle', device)
+        
+
+        color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'color', device)
+        color_prev= self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'color', device)
+
+
+        fine_loss = torch.nn.L1Loss()(occupancy_and_color_cur, occupancy_and_color_prev)
+        middle_loss = torch.nn.L1Loss()(occupancy_middle_cur, occupancy_middle_prev)
+        color_loss = torch.nn.L1Loss()(color_cur, color_prev)
+
+        distance3D_loss = torch.nn.L1Loss()(point_3D_current, point_3D_prev)
+
+        total_grid_loss = fine_loss + middle_loss + color_loss + distance3D_loss
+
+
         # prediction, target
         # loss_out_test = torch.nn.functional.huber_loss(uv_prev, cur_in_prev, reduction='mean', delta=1.0)
         loss_out_test = torch.nn.functional.huber_loss(uv_cur, prev_in_cur, reduction='mean', delta=1.0)
-
+        loss_out_test = total_grid_loss
         # loss_out_test = torch.tensor(loss_out_test, requires_grad=True)
         # print("testing loss of huber_loss output:\n", loss_out_test)
         
@@ -199,6 +261,7 @@ class Tracker(object):
         # print("camera_tensor inside optimize 2d2d AFTER OPTIM: \n", camera_tensor)
 
         optimizer.zero_grad()
+
         return loss_out_test.item()
 
 
@@ -319,7 +382,7 @@ class Tracker(object):
                 gets sparf rays and computes 3D point coordinates
 
                 """
-                for cam_iter in range(60):      # run optimization   self.num_cam_iters
+                for cam_iter in range(self.num_cam_iters):      # run optimization   self.num_cam_iters
                     print("cam_iter: ", cam_iter)
 
                     # print("current cam_tensor first: ", camera_tensor)
@@ -357,7 +420,7 @@ class Tracker(object):
                 # renders and outputs the image
                 # every out_num image is rendered and saved in rendered_images
                 if (debug2 == True):
-                    out_num = 1
+                    out_num = 50
                     if (idx%out_num == 0):
                         self.visualizer.vis_rendered(
                             idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)

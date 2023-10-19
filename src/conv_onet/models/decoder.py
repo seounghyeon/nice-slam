@@ -270,7 +270,7 @@ class MLP_no_xyz(nn.Module):
         c = F.grid_sample(grid_feature, vgrid, padding_mode='border',
                           align_corners=True, mode=self.sample_mode).squeeze(-1).squeeze(-1)
         return c
-
+    
     def forward(self, p, c_grid, **kwargs):
         c = self.sample_grid_feature(
             p, c_grid['grid_' + self.name]).transpose(1, 2).squeeze(0)
