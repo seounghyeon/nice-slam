@@ -156,7 +156,6 @@ class Tracker(object):
         # previous image 3D points in current frame 2D / current image 3D points in previous frame 2D
         prev_in_cur = proj_3D_2D(point_3D_prev, W, fx, fy, cx, cy, c2w, self.device)  # is float
         cur_in_prev = proj_3D_2D(point_3D_current, W, fx, fy, cx, cy, prev_c2w, self.device)  # is float
-        print("POINT 3D: ", point_3D_current[:10])
         # intermediate value dont need CHANGE THIS
         # cur_in_prev = cur_in_prev.requires_grad_(True)
         # prev_in_cur = prev_in_cur.requires_grad_(True)
@@ -164,6 +163,7 @@ class Tracker(object):
 
         # print("PREV IN CURRRRRRRRRRRR. ", prev_in_cur)
         if debug:
+            print("POINT 3D: ", point_3D_current[:10])
             # outputs the projected 3D point of current frame backprojected into 2D
             # should be the same as sift feature uv
             # check difference for different data sets
@@ -363,7 +363,7 @@ class Tracker(object):
 
                 camera_tensor = get_tensor_from_camera(
                 estimated_new_cam_c2w.detach())
-                print("estimated_new_cam_c2w: \n", estimated_new_cam_c2w)
+                # print("estimated_new_cam_c2w: \n", estimated_new_cam_c2w)
 
 
                 camera_tensor = Variable(
@@ -383,7 +383,7 @@ class Tracker(object):
 
                 """
                 for cam_iter in range(self.num_cam_iters):      # run optimization   self.num_cam_iters
-                    print("cam_iter: ", cam_iter)
+                    # print("cam_iter: ", cam_iter)
 
                     # print("current cam_tensor first: ", camera_tensor)
 
@@ -399,7 +399,7 @@ class Tracker(object):
 
                     if cam_iter == 0:
                         initial_loss = loss
-                        print("initial_loss cor cam iter 0 = ", initial_loss)
+                        # print("initial_loss cor cam iter 0 = ", initial_loss)
                     loss_camera_tensor = torch.abs(gt_camera_tensor.to(device)-camera_tensor).mean().item()
                     if self.verbose:
                         if cam_iter == self.num_cam_iters-1:
@@ -407,7 +407,7 @@ class Tracker(object):
                                 f'Re-rendering loss: {initial_loss:.2f}->{loss:.2f} ' +
                                 f'camera tensor error: {initial_loss_camera_tensor:.4f}->{loss_camera_tensor:.4f}')
 
-                    print("loss: ", loss)   
+                    # print("loss: ", loss)   
                     # print("current cam_tensor second: ", camera_tensor)
 
                     if loss < current_min_loss:
@@ -420,7 +420,7 @@ class Tracker(object):
                 # renders and outputs the image
                 # every out_num image is rendered and saved in rendered_images
                 if (debug2 == True):
-                    out_num = 50
+                    out_num = 100
                     if (idx%out_num == 0):
                         self.visualizer.vis_rendered(
                             idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
