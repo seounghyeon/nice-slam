@@ -210,34 +210,34 @@ class Tracker(object):
         # print("Sampled Voxels: ", sampled_voxels)
 
 
-        # occupancy_and_color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'fine', device)
-        # # print("occupancy and color out:\n ",occupancy_and_color_cur[:3])
-        # occupancy_and_color_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'fine', device)
-        # # print("occupancy and color out_prev:\n ",occupancy_and_color_prev[:3])
+        occupancy_and_color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'fine', device)
+        # print("occupancy and color out:\n ",occupancy_and_color_cur[:3])
+        occupancy_and_color_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'fine', device)
+        # print("occupancy and color out_prev:\n ",occupancy_and_color_prev[:3])
 
 
-        # occupancy_middle_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'middle', device)
-        # # print("occupancy and color out middle:\n ",occupancy_middle_cur[:3])
-        # occupancy_middle_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'middle', device)
+        occupancy_middle_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'middle', device)
+        # print("occupancy and color out middle:\n ",occupancy_middle_cur[:3])
+        occupancy_middle_prev = self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'middle', device)
         
 
-        # color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'color', device)
-        # color_prev= self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'color', device)
+        color_cur = self.mesher.eval_points(p_test, self.decoders, self.c, 'color', device)
+        color_prev= self.mesher.eval_points(p_test_prev, self.decoders, self.c, 'color', device)
 
 
-        # fine_loss = torch.nn.L1Loss()(occupancy_and_color_cur, occupancy_and_color_prev)
-        # middle_loss = torch.nn.L1Loss()(occupancy_middle_cur, occupancy_middle_prev)
-        # color_loss = torch.nn.L1Loss()(color_cur, color_prev)
+        fine_loss = torch.nn.L1Loss()(occupancy_and_color_cur, occupancy_and_color_prev)
+        middle_loss = torch.nn.L1Loss()(occupancy_middle_cur, occupancy_middle_prev)
+        color_loss = torch.nn.L1Loss()(color_cur, color_prev)
 
-        # distance3D_loss = torch.nn.L1Loss()(point_3D_current, point_3D_prev)
+        distance3D_loss = torch.nn.L1Loss()(point_3D_current, point_3D_prev)
 
-        # total_grid_loss = fine_loss + middle_loss + color_loss + distance3D_loss
+        total_grid_loss = fine_loss + middle_loss + color_loss + distance3D_loss
 
 
         # prediction, target
         # loss_out_test = torch.nn.functional.huber_loss(uv_prev, cur_in_prev, reduction='mean', delta=1.0)
         loss_out_test = torch.nn.functional.huber_loss(uv_cur, prev_in_cur, reduction='mean', delta=1.0)
-        # loss_out_test = total_grid_loss
+        loss_out_test = total_grid_loss
         # loss_out_test = torch.tensor(loss_out_test, requires_grad=True)
         # print("testing loss of huber_loss output:\n", loss_out_test)
         
