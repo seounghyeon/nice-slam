@@ -14,6 +14,7 @@ from src.Mapper import Mapper
 # from src.Tracker_2d2d_v2 import Tracker
 # from src.tracker_v3 import Tracker
 # from src.tracker_v6 import Tracker
+# from src.Tracker_2d2d_cleaned import Tracker
 from src.Tracker_2d2d_cleaned import Tracker
 
 from src.utils.datasets import get_dataset

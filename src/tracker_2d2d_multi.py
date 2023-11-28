@@ -28,6 +28,7 @@ from src.utils.Mesher import Mesher
 
 debug = False
 debug2 = True
+debug_multi = False
 class Tracker(object):
     def __init__(self, cfg, args, slam,
                  dim=3, c_dim=32,
@@ -86,9 +87,12 @@ class Tracker(object):
 
         self.mesher = Mesher(cfg, args, slam)  # Create an instance of Mesher
 
+        self.color_list = []
+
+
 
     def cam_pose_optimization_sift(self, camera_tensor, gt_color, gt_depth, batch_size, 
-                                   optimizer, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx):
+                                   optimizer, prev_camera_tensor, gt_depth_prev, gt_color_prev, idx, color_list):
         """
         Do one iteration of camera iteration. Sample pixels, render depth/color, calculate loss and backpropagation.
         Uses GT images and depth
@@ -105,10 +109,10 @@ class Tracker(object):
 
         device = self.device
         H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
+        
         optimizer.zero_grad()
         # print("camera_tensor inside optimize 2d2d: \n", camera_tensor)
-        
-        
+        print("COLOR_LIST SIZE:",  len(self.color_list))
         # print("prev_camera_tensor inside optimize 2d2d: \n", prev_camera_tensor)
 
         # print("optimizer inside optimize: \n", optimizer.grad)
@@ -117,7 +121,6 @@ class Tracker(object):
         prev_c2w = get_camera_from_tensor(prev_camera_tensor)
         Wedge = self.ignore_edge_W
         Hedge = self.ignore_edge_H
-        
         if debug == True:
             print("wedge and hedge are: ", Wedge, Hedge)
             batch_rays_o, batch_rays_d, batch_gt_depth, batch_gt_color = get_samples(
@@ -128,18 +131,16 @@ class Tracker(object):
         # will probably need initial poses - 
             '''
             hedge and wedge are 20 - the input to get_samples_sift() are 20 and imagesize-20
-            this means on every edge 20 pixels are removed and the removed image is put inside
+            this means on every edge ccc pixels are removed and the removed image is put inside
             1 is previous
             2 is current
             '''
-
         uv_prev, uv_cur, sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, sbatch_gt_color, sbatch_rays_o2, sbatch_rays_d2, sbatch_gt_depth2, sbatch_gt_color2 = get_samples_sift(
-            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device)
+            Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device, color_list)
 
-        if debug == True:
-            print("from 2 size: ", sbatch_rays_d2.size(), sbatch_rays_o2.size())
-            print("from 1 size: ", sbatch_rays_d.size(), sbatch_rays_o.size())
-            print("uv_cur size: ", uv_cur.size())
+        # print("from 2 size: ", sbatch_rays_d2.size(), sbatch_rays_o2.size())
+        # print("from 1 size: ", sbatch_rays_d.size(), sbatch_rays_o.size())
+        # print("uv_cur size: ", uv_cur.size())
         sift_feature_size = uv_cur.shape[0]
 
 
@@ -286,6 +287,16 @@ class Tracker(object):
     def run(self):
 
 
+
+        ''' preprocessing images beforehand for multi frame tracking '''
+        H, W, fx, fy, cx, cy = self.H, self.W, self.fx, self.fy, self.cx, self.cy
+        Wedge = self.ignore_edge_W
+        Hedge = self.ignore_edge_H
+        # get_samples_sift(Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, gt_depth_prev, gt_color_prev, prev_c2w, gt_depth, gt_color, c2w, idx, self.device, color_list)
+
+        # depth_prev = depth_prev[H0:H1, W0:W1]
+        # color_prev = color_prev[H0:H1, W0:W1]
+
         # true for using gt c2w otherwise run normal
         toggle_gt_c2w = False
 
@@ -304,6 +315,7 @@ class Tracker(object):
         # batch_rays_o_prev = None
 
         # main loop for tracker - runs for all frames
+        # idx starts at 0 for frame 0
         for idx, gt_color, gt_depth, gt_c2w in pbar:
             if not self.verbose:
                 pbar.set_description(f"Tracking Frame {idx[0]}")
@@ -312,6 +324,14 @@ class Tracker(object):
             gt_depth = gt_depth[0]
             gt_color = gt_color[0]
             gt_c2w = gt_c2w[0]
+            
+            frame_num_d = 5
+            print("Size of gt_color tensor:", gt_color.size())
+
+            # append the frame 
+            self.color_list.append(gt_color)
+
+
 
             if debug == True and idx>1:
                 print("this is the current idx: ", idx, "this is the previous idx: ", prev_idx, "\n")
@@ -394,7 +414,7 @@ class Tracker(object):
                         idx, cam_iter, gt_depth, gt_color, camera_tensor, self.c, self.decoders)
                     loss = self.cam_pose_optimization_sift(
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, 
-                        prev_camera_tensor, gt_depth_prev, gt_color_prev, idx)
+                        prev_camera_tensor, gt_depth_prev, gt_color_prev, idx, self.color_list)
                     # print("batch_Rays_d_prev = ", batch_rays_d_prev)
                     # print("size of batch_rays_d_prev = ", batch_rays_d_prev.size())
                     # print("size of batch_rays_o_prev = ", batch_rays_o_prev.size())
@@ -455,3 +475,20 @@ class Tracker(object):
             #     batch_rays_o_prev = batch_rays_o.clone()
             #     batch_rays_d_prev = batch_rays_d.clone()
                 
+
+
+
+            # if frame index is the one after the first tracking (needs to be after 4th frames) 
+            # because frame starts at, first reset to the last input frame is at frame 5
+            # input frames are  0 1 2 3 4 - jump to next list with 4 5 6 7 8 9 - jump to next list with 9 10 11 12 13 14
+            # meaning when current input index is registered as 5, deletes all up to 4 (without 4) and adds 5 
+            # this gets the new list with 4 5 6 ..
+            if (idx == frame_num_d-1):
+                self.color_list = self.color_list[-1:]
+                print("first frame list")
+                print("length of frames: ", len(self.color_list))
+            # if the color_list is length 6 
+            if (len(self.color_list)==frame_num_d+1):
+                self.color_list = self.color_list[-1:]
+                print("other frame list")
+

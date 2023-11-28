@@ -198,6 +198,7 @@ class SIFTMatcher:
         # list_keypoints_2 = [(int(keypoints_2[mat.trainIdx].pt[0]), int(keypoints_2[mat.trainIdx].pt[1])) for mat in matches]
 
         # Draw and display the first 100 matches
+        # print("kp1_sort type and shape:", type(keypoints_2))
         matched_image = cv2.drawMatches(image1, keypoints_1, image2, keypoints_2, matches[:100], None, flags=2)
         # cv2.imwrite(f'/home/seoungham/Pictures/matched_images/match_{idx}.jpg', matched_image)
         # cv2.imwrite(f'/home/seoungham/Pictures/test_img/match_{idx}.jpg', image2)

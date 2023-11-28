@@ -40,12 +40,13 @@ def replace_zero_depth(depth_tensor, gt_depth_tensor):
         torch.Tensor: updated tensor 1D with max_depth
     """
     max_depth_value = torch.max(gt_depth_tensor)
-
+    # print("max depth value is: ", max_depth_value)
+    def_depth = max_depth_value
     # Create a mask for zero depth values
     zero_mask = (depth_tensor == 0)
     
     # Replace zero depths with the maximum depth value
-    depth_tensor[zero_mask] = max_depth_value
+    depth_tensor[zero_mask] = def_depth
     
     return depth_tensor
 
@@ -215,7 +216,8 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
 def select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device='cuda:0'):
     """
     Select n uv from dense uv.
-
+    color and depth sizes are already smaller
+    so is size of i j
     """
     i = i.reshape(-1)
     j = j.reshape(-1)
@@ -231,11 +233,27 @@ def select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_
 
     sift_matcher = SIFTMatcher()  # Instantiate the class
 
-    # print("this is in select_uv shape of i and j: ", i.size(), j.size())
     # print("in select uv before match() h0,h1,w0,w1: ", H0, H1, W0, W1)
 
     uv_prev, uv_cur, index_prev, index_cur = sift_matcher.match(i, j, frame, color_prev, color_cur)
     
+
+    
+    # frame_dist = 5
+
+    # # very first init color_list 
+    # # frame dist -1 because frame name starts at 0
+    # if frame == frame_dist - 1:
+    #     init = True
+    #     print("init first track \n")
+    #     sift_matcher.add_frames_and_match(i, j,color_list, frame, frame_dist, init)
+
+    # # subsequent color lists are larger
+    # if len(color_list) == frame_dist+1:
+    #     init = False
+    #     print("color list is " +str(len(color_list)) +" frames. \n")
+    #     sift_matcher.add_frames_and_match(i, j,color_list, frame, frame_dist, init)
+
 
     test_u_cur =i[index_cur]
     test_v_cur = j[index_cur]
@@ -318,9 +336,8 @@ def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, depth_prev, color_
     c2w is its camera pose and depth/color is the corresponding image tensor.
     """
     # print("\nthis is batch_Rays_d_prev: \n", batch_rays_d_prev)
-    if debug == True:
-        print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
-        print("image size: ", color_cur.size())
+    # print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
+    # print("image size: ", color_cur.size())
 
     uv_prev, uv_cur, i_prev, j_prev, sample_depth_prev, sample_color_prev, i_cur, j_cur, sample_depth_cur, sample_color_cur = get_sample_uv(
         H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)

@@ -47,7 +47,9 @@ def readEXR_onlydepth(filename):
 def get_dataset(cfg, args, scale, device='cuda:0'):
     return dataset_dict[cfg['dataset']](cfg, args, scale, device=device)
 
-
+'''
+- resizes the image and crops it to standard size
+'''
 class BaseDataset(Dataset):
     def __init__(self, cfg, args, scale, device='cuda:0'
                  ):
