@@ -392,6 +392,7 @@ class Tracker(object):
                     loss = self.cam_pose_optimization_sift(
                         camera_tensor, gt_color, gt_depth, self.tracking_pixels, optimizer_camera, 
                         prev_camera_tensor, gt_depth_prev, gt_color_prev, idx)
+                    
                     # print("batch_Rays_d_prev = ", batch_rays_d_prev)
                     # print("size of batch_rays_d_prev = ", batch_rays_d_prev.size())
                     # print("size of batch_rays_o_prev = ", batch_rays_o_prev.size())
