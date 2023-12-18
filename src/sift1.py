@@ -17,14 +17,13 @@ SIFT Feature Matching Class
 
 """
 class SIFTMatcher:
-    def __init__(self):
+    def __init__(self, device = 'cuda'):
         self.sift = cv2.SIFT_create()
         self.brutef = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-        self.device = torch.device("cuda")
+        self.device = device
 
 
     def match(self, i, j, idx, image1in, image2in):
-
         if image1in is None or image1in.numel() == 0:
             # print("\nTHIS IS NONE IN IMAGE1IN no previous image saved up\n\n")
             return None, None, None, None
@@ -53,9 +52,11 @@ class SIFTMatcher:
         if np_img2.max() <= 1.0:
             np_img2 = (np_img2 * 255).astype(np.uint8)
         # Save the images
+
         image1 = cv2.cvtColor(np_img1, cv2.COLOR_RGB2BGR)
         image2 = cv2.cvtColor(np_img2, cv2.COLOR_RGB2BGR)
         ############################################
+        print("Image 1 shape:", image1.shape)
         
         debug = False
 
@@ -175,16 +176,11 @@ class SIFTMatcher:
             print("index second: ", index_2)
 
 
-        index_1 = index_1.cpu()
-        index_2 = index_2.cpu()
+
         # print("this is index2 in sift: ",index_2[:10])
 
-
-        # index_1 += 20
-        # index_2 += 20
-
-        # test_u =u_coord[index_1]
-        # test_v = v_coord[index_1]
+        # test_u =u_coord[index_2]
+        # test_v = v_coord[index_2]
         # print("this is output of the index2: ",test_u[:10],test_v[:10])
         # # check if recovery of index works correctly 
         # # Recover UV coordinates from index_1

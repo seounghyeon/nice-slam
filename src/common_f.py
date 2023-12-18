@@ -1,40 +1,6 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from src.sift import SIFTMatcher
-
-# mapper and tracker? need an init for the very first image (get the sift features)
-# create sift features for the subsequent images and find the corresponding features
-# word from the other thing from file for several images
-# get same features and matches over several images
-
-
-# check the features added, might be that they dont change and stuff and leading to the problem of the loss not working
-
-
-
-
-
-
-
-# later create c2w 
-
-debug = False
-
-def as_intrinsics_matrix(intrinsics):
-    """
-    Get matrix representation of intrinsics.
-
-    """
-    K = np.eye(3)
-    K[0, 0] = intrinsics[0]
-    K[1, 1] = intrinsics[1]
-    K[0, 2] = intrinsics[2]
-    K[1, 2] = intrinsics[3]
-    return K
-
-
-
 
 
 def replace_zero_depth(depth_tensor, gt_depth_tensor):
@@ -59,20 +25,19 @@ def replace_zero_depth(depth_tensor, gt_depth_tensor):
     
     return depth_tensor
 
-def ray_to_3D(sbatch_rays_o, sbatch_rays_d, sbatch_gt_depth, gt_depth,  batch_size, sift_feature_size):
+
+def ray_to_3D(batch_rays_o, batch_rays_d, batch_gt_depth, gt_depth):
     """
     changing 0 depth into max depth
     0 depth means no depth information 
     """
-    max_sift = batch_size + sift_feature_size
-    s_rays_o = sbatch_rays_o[batch_size:max_sift]
-    s_rays_d = sbatch_rays_d[batch_size:max_sift]
-    s_depth = sbatch_gt_depth[batch_size:max_sift]
-    s_depth     = replace_zero_depth(s_depth, gt_depth)
+    s_depth = batch_gt_depth
+    s_depth     = replace_zero_depth(batch_gt_depth, gt_depth)
     # 3D coordinates projected from the previous and current image
-    point_3D    = s_rays_o + s_rays_d * s_depth.unsqueeze(1) # output size is [100,3] torch.float32
+    point_3D    = batch_rays_o + batch_rays_d * s_depth.unsqueeze(1) # output size is [100,3] torch.float32
 
     return point_3D
+
 
 def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
     """
@@ -130,6 +95,18 @@ def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
     return uv
 
 
+def as_intrinsics_matrix(intrinsics):
+    """
+    Get matrix representation of intrinsics.
+
+    """
+    K = np.eye(3)
+    K[0, 0] = intrinsics[0]
+    K[1, 1] = intrinsics[1]
+    K[0, 2] = intrinsics[2]
+    K[1, 2] = intrinsics[3]
+    return K
+
 
 def sample_pdf(bins, weights, N_samples, det=False, device='cuda:0'):
     """
@@ -185,30 +162,15 @@ def random_select(l, k):
     """
     return list(np.random.permutation(np.array(range(l)))[:min(l, k)])
 
-# somehow the i j values added +20
+
 def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     """
     Get corresponding rays from input uv.
-    c2w backprop works!
+
     """
-
-
-    # # Define the range of to update
-    # start_index = 1000
-    # end_index = 1100
-
-    # # Add 20 to the specified range of entries
-    # i[start_index:end_index] -= 20
-    # j[start_index:end_index] -= 20
-
-    # print("in get_rays_from_uv i (either prev or cur): ", i[1000:1010])
-    # print("in get_rays_from_uv j (either prev or cur): ", j[1000:1010])
-
-    # Create a tensor with recovered UV coordinates
-    # uv_recovered = torch.stack((u_coord_recovered, v_coord_recovered), dim=1)
     if isinstance(c2w, np.ndarray):
         c2w = torch.from_numpy(c2w).to(device)
-        print("c2w is numpy CHECK IT GRADIENT")
+
     dirs = torch.stack(
         [(i-cx)/fx, -(j-cy)/fy, -torch.ones_like(i)], -1).to(device)
     dirs = dirs.reshape(-1, 1, 3)
@@ -219,147 +181,53 @@ def get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device):
     return rays_o, rays_d
 
 
-# randomly chooses uv coordinates
-# adds sift features and uv coordinates
-# color gt image
-def select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device='cuda:0'):
+def select_uv(i, j, n, depth, color, device='cuda:0'):
     """
     Select n uv from dense uv.
-    n for replica is 200
-    color and depth sizes are already smaller
-    so is size of i j
+
     """
     i = i.reshape(-1)
     j = j.reshape(-1)
-
-    k = i.clone()
-    l = j.clone()
-    #random indices
-    # print("test i[0]: ", i[0], i[1], i[-1])
-    indices_prev = torch.randint(i.shape[0], (n,), device=device) # generates n random integers between 0 (inclusive) and i.shape[0]
-    indices_prev = indices_prev.clamp(0, i.shape[0])
-
-    indices_cur = indices_prev.clone()
-
-    sift_matcher = SIFTMatcher()  # Instantiate the class
-
-    # print("in select uv before match() h0,h1,w0,w1: ", H0, H1, W0, W1)
-
-    uv_prev, uv_cur, index_prev, index_cur = sift_matcher.match(i, j, frame, color_prev, color_cur)
-    
-
-    
-    # frame_dist = 5
-
-    # # very first init color_list 
-    # # frame dist -1 because frame name starts at 0
-    # if frame == frame_dist - 1:
-    #     init = True
-    #     print("init first track \n")
-    #     sift_matcher.add_frames_and_match(i, j,color_list, frame, frame_dist, init)
-
-    # # subsequent color lists are larger
-    # if len(color_list) == frame_dist+1:
-    #     init = False
-    #     print("color list is " +str(len(color_list)) +" frames. \n")
-    #     sift_matcher.add_frames_and_match(i, j,color_list, frame, frame_dist, init)
+    indices = torch.randint(i.shape[0], (n,), device=device)
+    indices = indices.clamp(0, i.shape[0])
+    i = i[indices]  # (n)
+    j = j[indices]  # (n)
+    depth = depth.reshape(-1)
+    color = color.reshape(-1, 3)
+    depth = depth[indices]  # (n)
+    color = color[indices]  # (n,3)
+    return i, j, depth, color
 
 
-    test_u_cur =i[index_cur]
-    test_v_cur = j[index_cur]
-    # print("\n\nthis is output of the index2 in select_uv:\n ",test_u_cur[:10],test_v_cur[:10])
-    # print("\n\nthis is output of the uv_cur in select_uv:\n ",uv_cur[:10])
-
-
-    # print("this is index2 in sift: ",index_cur[:10])
-
-
-
-    if index_prev is not None:
-        indices_prev = torch.cat((indices_prev, index_prev), dim=0)
-        indices_cur = torch.cat((indices_cur, index_cur), dim=0)
-        # print("size of indices_prev and current = ", indices_prev.size(), indices_cur.size())
-    i = i[indices_prev]  # (n)
-    j = j[indices_prev]  # (n)
-    # print("\ni size is: ",i.size())
-    k = k[indices_cur]
-    l = l[indices_cur]
-
-    depth_prev = depth_prev.reshape(-1)
-    color_prev = color_prev.reshape(-1, 3)
-    depth_prev = depth_prev[indices_prev]  # (n)
-    color_prev = color_prev[indices_prev]  # (n,3)
-
-    depth_cur = depth_cur.reshape(-1)
-    color_cur = color_cur.reshape(-1, 3)
-    depth_cur = depth_cur[indices_cur]  # (n)
-    color_cur = color_cur[indices_cur]  # (n,3)
-
-    return  uv_prev, uv_cur, i, j, depth_prev, color_prev, k, l, depth_cur, color_cur
-
-
-
-
-
-
-
-
-# initiates all the uv coordinates in i and j aswell as depth and color for all pixels
-# puts them into select_uv where some pixels are randomly sampled which then form the output tensors
-# to add specific uv chosen by sift - edit select_uv
-# output i j are the sampled i and j values
-# color_cur is the current
-def get_sample_uv(H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device='cuda:0'):
+def get_sample_uv(H0, H1, W0, W1, n, depth, color, device='cuda:0'):
     """
     Sample n uv coordinates from an image region H0..H1, W0..W1
-    """
-    depth_prev = depth_prev[H0:H1, W0:W1]
-    color_prev = color_prev[H0:H1, W0:W1]
 
-    depth_cur = depth_cur[H0:H1, W0:W1]
-    color_cur = color_cur[H0:H1, W0:W1]    
-    #i is horizontal (width) and j is vertical (height)
-    # torch.linspace(W0, W1-1, W1-W0) horizontal u coordinate in a 1D tensor
-    # meshgrid takes 2 1D tensor to create 2D tensor
-    # i is all horizontal u coordinates in range [W0, W1-1] (W0 starting x, W1-1 ending x coordinate
-    # W1-W0 determines the total number of coordinate steps between W0 and W1-1
+    """
+    depth = depth[H0:H1, W0:W1]
+    color = color[H0:H1, W0:W1]
     i, j = torch.meshgrid(torch.linspace(
         W0, W1-1, W1-W0).to(device), torch.linspace(H0, H1-1, H1-H0).to(device))
     i = i.t()  # transpose
     j = j.t()
-    # print("image size: ", color_cur.size())
-
-    # considering same input image size for all images i and j are the same for both images (input in select_uv())
-    uv_prev, uv_cur, i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur = select_uv(H0, H1, W0, W1, i, j, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
-
-    return  uv_prev, uv_cur, i_prev, j_prev, depth_prev, color_prev, i_cur, j_cur, depth_cur, color_cur
+    i, j, depth, color = select_uv(i, j, n, depth, color, device=device)
+    return i, j, depth, color
 
 
-
-
-# Hedge, H-Hedge, Wedge, W-Wedge, batch_size, H, W, fx, fy, cx, cy, c2w, gt_depth, gt_color, gt_color_prev, stored_rays, idx, self.device)
-# 1 is the previous iteration, 2 is current iteration
-def get_samples_sift(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, depth_prev, color_prev, c2w_prev, depth_cur, color_cur, c2w_cur, frame, device, uv_prev_t, uv_cur_t, index_prev_t, index_cur_t):
+def get_samples(H0, H1, W0, W1, n, H, W, fx, fy, cx, cy, c2w, depth, color, device):
     """
     Get n rays from the image region H0..H1, W0..W1.
     c2w is its camera pose and depth/color is the corresponding image tensor.
+
     """
-    # print("\nthis is batch_Rays_d_prev: \n", batch_rays_d_prev)
-    # print("in get_samples_sift H0, H1, W0, W1: ", H0, H1, W0, W1)
-    # print("image size: ", color_cur.size())
-
-    uv_prev, uv_cur, i_prev, j_prev, sample_depth_prev, sample_color_prev, i_cur, j_cur, sample_depth_cur, sample_color_cur = get_sample_uv(
-        H0, H1, W0, W1, n, depth_prev, color_prev, depth_cur, color_cur, frame, device=device)
-
-    rays_o_prev, rays_d_prev = get_rays_from_uv(i_prev, j_prev, c2w_prev, H, W, fx, fy, cx, cy, device)
-    rays_o_cur, rays_d_cur = get_rays_from_uv(i_cur, j_cur, c2w_cur, H, W, fx, fy, cx, cy, device)
-    return  uv_prev, uv_cur, rays_o_prev, rays_d_prev, sample_depth_prev, sample_color_prev, rays_o_cur, rays_d_cur, sample_depth_cur, sample_color_cur
+    i, j, sample_depth, sample_color = get_sample_uv(
+        H0, H1, W0, W1, n, depth, color, device=device)
+    
+    # print("H AND W INSIDE GET SAMPLES: ", H, W)
+    rays_o, rays_d = get_rays_from_uv(i, j, c2w, H, W, fx, fy, cx, cy, device)
+    return rays_o, rays_d, sample_depth, sample_color
 
 
-
-
-# quaternions used to compute matrices faster with less memory
-# for rotation matrix
 def quad2rotation(quad):
     """
     Convert quaternion to rotation in batch. Since all operation in pytorch, support gradient passing.
@@ -385,11 +253,7 @@ def quad2rotation(quad):
     rot_mat[:, 2, 2] = 1 - two_s * (qi ** 2 + qj ** 2)
     return rot_mat
 
-# returns a 3x4 matrix like
-# [-0.9516, -0.1204,  0.2828,  2.6555]
-# [ 0.3073, -0.3925,  0.8669,  2.9814]
-# [ 0.0067,  0.9118,  0.4105,  1.3619]
-# needs to add 0 0 0 1 to get the 4x4 homogeneous matrix
+
 def get_camera_from_tensor(inputs):
     """
     Convert quaternion and translation to transformation matrix.
