@@ -24,7 +24,6 @@ class SIFTMatcher:
 
 
     def match(self, i, j, idx, image1in, image2in):
-
         if image1in is None or image1in.numel() == 0:
             # print("\nTHIS IS NONE IN IMAGE1IN no previous image saved up\n\n")
             return None, None, None, None
@@ -56,7 +55,8 @@ class SIFTMatcher:
         image1 = cv2.cvtColor(np_img1, cv2.COLOR_RGB2BGR)
         image2 = cv2.cvtColor(np_img2, cv2.COLOR_RGB2BGR)
         ############################################
-        
+        # print("image size in match: ", image1.shape)
+
         debug = False
 
         # Detect and compute keypoints and descriptors
@@ -91,8 +91,8 @@ class SIFTMatcher:
         # u_coord = u_coord.t()  # transpose
         # v_coord = v_coord.t()
 
-        u_coord = i
-        v_coord = j
+        # u_coord = i
+        # v_coord = j
 
         # if(debug):
             # print("u_coord is: ",u_coord.size())
@@ -141,20 +141,20 @@ class SIFTMatcher:
             print("v kp2 first 10: ",v_reshaped_1[:10])
             print("kp2 first 10:", uv_1[:10])
 
-        # shows image 2 with the first 10 keypoints of the matches 
-        for uv in uv_2[:10]:
-            u, v = int(uv[0]), int(uv[1])
-            cv2.circle(image2, (u, v), radius=10, color=(0, 255, 0), thickness=-1)  # Draw a green circle
-        #cv2.imshow('image2', image2)
+            # shows image 2 with the first 10 keypoints of the matches 
+            for uv in uv_2[:10]:
+                u, v = int(uv[0]), int(uv[1])
+                cv2.circle(image2, (u, v), radius=10, color=(0, 255, 0), thickness=-1)  # Draw a green circle
+            #cv2.imshow('image2', image2)
 
 
-        for uv in uv_1[:10]:
-            u, v = int(uv[0]), int(uv[1])
-            cv2.circle(image1, (u, v), radius=10, color=(0, 255, 0), thickness=-1)  # Draw a green circle
+            for uv in uv_1[:10]:
+                u, v = int(uv[0]), int(uv[1])
+                cv2.circle(image1, (u, v), radius=10, color=(0, 255, 0), thickness=-1)  # Draw a green circle
 
 
         # starts at Wedge is 20
-        uv_2 += 20
+        # uv_2 += 20
         # print("\nuv_2 in sift: \n", uv_2[:10])
 
 
@@ -209,5 +209,22 @@ class SIFTMatcher:
         # cv2.imwrite(f'/home/seoungham/Pictures/test_img/match_{idx}.jpg', image2)
         uv_1 = uv_1.to(torch.float32)
         uv_2 = uv_2.to(torch.float32)
-        return uv_1, uv_2, index_1, index_2
+
+
+
+
+
+        # Extract colors from the images at the UV coordinates
+        colors_1 = torch.tensor([image1[int(v), int(u)] for u, v in uv_1], dtype=torch.float32, device=self.device)
+        colors_2 = torch.tensor([image2[int(v), int(u)] for u, v in uv_2], dtype=torch.float32, device=self.device)
+
+
+        # print("colors of uv cur in sift: ", colors_2[:10])
+
+        # print("colors of uv prev in sift: ", colors_1[:10])
+
+        # print("uv cur in sift: ", uv_2[:10])
+        # print("uv cur in sift : ", type(uv_2))
+
+        return uv_1, uv_2, index_1, index_2, colors_2
 

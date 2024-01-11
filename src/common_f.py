@@ -39,13 +39,15 @@ def ray_to_3D(batch_rays_o, batch_rays_d, batch_gt_depth, gt_depth):
     return point_3D
 
 
-def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
+def proj_3D_2D(points, W, H, fx, fy, cx, cy, c2w, device):
     """
     projects 3D points into 2D space at pose given by c2w
     input args:
         - points: torch tensor of 3D points Nx3
         - fx fy cx cy intrinsic camera params
         - c2w camera pose for the image
+        - W is the cropped image size since x y are flipped
+        - H is the hedge
     output: 
         - uv coordinates (N,2)
     """
@@ -85,8 +87,10 @@ def proj_3D_2D(points, W, fx, fy, cx, cy, c2w, device):
 
 
     # Apply the correct transformation to uv coordinates
-    uv[:, 0] = W - uv[:, 0]
-    uv[:, 0] -= 2
+    uv[:, 0] = W - uv[:, 0] - 1
+    # uv[:, 1] = H - uv[:, 1]
+    uv[:, 1] = uv[:, 1] - H
+
     # print("these are the points size: \n", points.size())
     # print("uv.size: ", uv.size())
     num_points = points.size(0)

@@ -15,3 +15,9 @@ def huber_loss(y_pred, y_true, delta=1.0):
     abs_error = torch.abs(error)
     quadratic = torch.where(abs_error <= delta, 0.5 * abs_error ** 2, delta * (abs_error - 0.5 * delta))
     return quadratic.mean()
+
+def huber_loss_sum(y_pred, y_true, delta=1.0):
+    error = y_pred - y_true
+    abs_error = torch.abs(error)
+    quadratic = torch.where(abs_error <= delta, 0.5 * abs_error ** 2, delta * (abs_error - 0.5 * delta))
+    return quadratic.sum()  # Sum instead of mean
